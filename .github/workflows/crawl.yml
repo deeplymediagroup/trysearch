@@ -58,8 +58,4 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
 
-      - name: Report minutes used
-        if: always()
-        run: echo "Billed as $(( ($SECONDS + 59) / 60 )) minute(s). GitHub rounds each job up to a whole minute."
 
-# Verified on GitHub Actions: see `gh run list`.
