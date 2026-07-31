@@ -1,0 +1,49 @@
+# The nightly crawl (07-CRAWLER-AND-JOBS.md §6).
+#
+# Runs on GitHub Actions rather than Vercel: Vercel's function duration caps are a poor fit
+# for a multi-hour crawl, while a single Actions runner is ONE IP, which keeps the politeness
+# budget in one predictable place.
+#
+# ⚠️ Watch the minutes. The free tier is ~2,000/month and a 2-hour nightly crawl would be
+# ~3,600. The `--limit` below caps each night's work; if it still runs long, run the same
+# script from Brandon's laptop on a Windows Task Scheduler job, which is free and unlimited.
+# That fallback is exactly why scripts/crawl.mjs has no build step.
+name: nightly-crawl
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # 02:00 UTC — off-peak for the stores, and fresh by morning
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'Comma-separated job list (default: all)'
+        required: false
+        default: ''
+      limit:
+        description: 'Cap keywords per job'
+        required: false
+        default: '0'
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330 # the 6-hour job limit is plenty; fail before burning it all
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Crawl
+        run: |
+          node scripts/crawl.mjs \
+            ${{ github.event.inputs.jobs && format('--jobs {0}', github.event.inputs.jobs) || '--all' }} \
+            --limit ${{ github.event.inputs.limit || '250' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          # Optional. Absent secrets degrade one feature and populate `warnings`; they never
+          # fail the run.
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}

@@ -30,11 +30,20 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — never opt in here, this app holds App Store Connect keys
 .env*
 
-# vercel
-.vercel
+# App Store Connect private keys. In .gitignore from the FIRST commit, not the tenth.
+*.p8
+*.json.key
+play-service-account*.json
+
+# crawler output / local scratch
+/.data/
+/tmp/
+
+# vercel — the folder carries the project link; copying it can overwrite another project's URL
+.vercel/
 
 # typescript
 *.tsbuildinfo

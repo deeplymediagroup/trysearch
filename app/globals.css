@@ -1,26 +1,137 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens — 06-FRONTEND-SPEC.md §2.
+ * A dark, dense, data-first console: near-black canvas, hairline borders instead of
+ * shadows, small uppercase table headers, ONE accent colour reserved for data.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* canvas — near-black, not pure black; panels lift by 2-3% lightness */
+  --bg: #0a0a0b;
+  --bg-panel: #121214;
+  --bg-elevated: #18181b;
+  --bg-hover: #1f1f23;
+
+  /* hairline borders do the structural work; almost no shadows */
+  --border: #26262b;
+  --border-strong: #35353c;
+
+  /* text */
+  --fg: #f4f4f5;
+  --fg-muted: #a1a1aa;
+  --fg-subtle: #71717a;
+
+  /* one accent, reserved for DATA (chart lines, active states) */
+  --accent: #3b82f6;
+  --accent-soft: rgba(59, 130, 246, 0.15);
+
+  /* semantic: deltas and rank brackets */
+  --up: #22c55e;
+  --down: #ef4444;
+  --warn: #f59e0b;
+  --neutral: #71717a; /* zero change — deliberately grey, not green */
+
+  /* rank brackets, used consistently in the stacked chart AND rank pills */
+  --rank-top3: #22c55e;
+  --rank-4-10: #84cc16;
+  --rank-11-30: #eab308;
+  --rank-31-100: #f97316;
+  --rank-100plus: #dc2626;
+
+  --radius: 10px; /* nothing square */
+  --radius-chip: 6px;
+  --radius-pill: 999px;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-num: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-panel: var(--bg-panel);
+  --color-elevated: var(--bg-elevated);
+  --color-hover: var(--bg-hover);
+  --color-hairline: var(--border);
+  --color-hairline-strong: var(--border-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--fg-muted);
+  --color-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-up: var(--up);
+  --color-down: var(--down);
+  --color-warn: var(--warn);
+  --color-neutral: var(--neutral);
+  --radius-panel: var(--radius);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-num);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-ui);
+  font-size: 14px; /* dense tool, not a landing page */
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Numbers and keywords use a tabular face. Non-negotiable per the spec: rank columns
+ * must align vertically or the table is unreadable at a glance.
+ */
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Table headers: ~11px, uppercase, wide tracking, subtle. The spec calls this single
+ * detail "most of what makes the tool look professional".
+ */
+.th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-subtle);
+  font-weight: 500;
+}
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* Visible focus rings — accessibility is not optional (§5). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* Scrollbars that match the console rather than the OS default. */
+* {
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+/*
+ * prefers-reduced-motion. NOTE the iteration-count line: Brandon has shipped a
+ * reduce-motion block missing exactly that, and it produced a ~118 flash/second strobe.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
