@@ -48,3 +48,10 @@ play-service-account*.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel
+
+# The build spec contains a competitive teardown of a named third-party business,
+# including revenue estimates and remarks about its founder. Kept local, out of the
+# public repo. Backup: ../trysearch-spec-private-backup
+docs/spec/
