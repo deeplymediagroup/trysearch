@@ -4,10 +4,18 @@
 # for a multi-hour crawl, while a single Actions runner is ONE IP, which keeps the politeness
 # budget in one predictable place.
 #
-# ⚠️ Watch the minutes. The free tier is ~2,000/month and a 2-hour nightly crawl would be
-# ~3,600. The `--limit` below caps each night's work; if it still runs long, run the same
-# script from Brandon's laptop on a Windows Task Scheduler job, which is free and unlimited.
-# That fallback is exactly why scripts/crawl.mjs has no build step.
+# ── Actions minutes ────────────────────────────────────────────────────────────
+# MEASURED cost after batching the crawler's database writes: ~3.6s per keyword plus ~1.7
+# min of fixed overhead. That is ~150 min/month at 40 keywords and ~1,890 at 1,000 — inside
+# the ~2,000-minute free tier for a private repo.
+#
+# Two things keep it there:
+#   1. `--max-minutes` below is a HARD ceiling. The crawl stops cleanly when it expires and
+#      resumes tomorrow, oldest keywords first. It can never produce a surprise bill.
+#   2. If this repo is PUBLIC, GitHub gives unlimited standard-runner minutes and the whole
+#      question disappears.
+# The unlimited fallback either way is `npm run crawl` on Brandon's own machine, which is why
+# scripts/crawl.mjs is a standalone .mjs with no build step.
 name: nightly-crawl
 
 on:
@@ -16,18 +24,19 @@ on:
   workflow_dispatch:
     inputs:
       jobs:
-        description: 'Comma-separated job list (default: all)'
+        description: 'Comma-separated job list (blank = all)'
         required: false
         default: ''
-      limit:
-        description: 'Cap keywords per job'
+      max_minutes:
+        description: 'Hard wall-clock budget in minutes'
         required: false
-        default: '0'
+        default: '45'
 
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 330 # the 6-hour job limit is plenty; fail before burning it all
+    # Belt and braces: --max-minutes stops the crawl gracefully; this kills a hung run.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,11 +44,12 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+
       - name: Crawl
         run: |
           node scripts/crawl.mjs \
             ${{ github.event.inputs.jobs && format('--jobs {0}', github.event.inputs.jobs) || '--all' }} \
-            --limit ${{ github.event.inputs.limit || '250' }}
+            --max-minutes ${{ github.event.inputs.max_minutes || '45' }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
@@ -47,3 +57,7 @@ jobs:
           # fail the run.
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+
+      - name: Report minutes used
+        if: always()
+        run: echo "Billed as $(( ($SECONDS + 59) / 60 )) minute(s). GitHub rounds each job up to a whole minute."

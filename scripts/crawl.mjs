@@ -84,6 +84,24 @@ const RUN_DATE = arg("--date") ?? new Date().toISOString().slice(0, 10);
 const LIMIT = Number(arg("--limit", "0")) || 0;
 const DRY = has("--dry");
 
+/**
+ * A HARD wall-clock budget, in minutes. This is the thing that stops GitHub Actions minutes
+ * from ever becoming a surprise bill.
+ *
+ * Measured cost is ~11s per keyword, ~85% of which is the politeness limiter sleeping rather
+ * than network time. So the nightly run grows linearly with the tracked keyword set, and
+ * without a ceiling a growing keyword list silently walks past the free tier.
+ *
+ * When the budget runs out the crawl STOPS CLEANLY: work already persisted is kept (we save
+ * after every keyword), the job is marked `partial`, and a warning records exactly how much
+ * was left. Tomorrow's run picks up where this one stopped, because the rank_check queue
+ * already skips keywords that have a row for today and orders by staleness.
+ */
+const MAX_MINUTES = Number(arg("--max-minutes", "0")) || 0;
+const deadline = MAX_MINUTES ? Date.now() + MAX_MINUTES * 60_000 : Infinity;
+const outOfTime = () => Date.now() > deadline;
+const minutesLeft = () => (deadline === Infinity ? Infinity : Math.max(0, (deadline - Date.now()) / 60_000));
+
 const warnings = [];
 const warn = (msg) => {
   warnings.push(msg);
@@ -98,7 +116,7 @@ const db = await connect();
 setFetchSink(db);
 
 log(`\ntrysearch crawl — ${RUN_DATE}`);
-log(`jobs: ${JOBS.join(", ")}${DRY ? "  (DRY RUN — no upstream fetches)" : ""}\n`);
+log(`jobs: ${JOBS.join(", ")}${DRY ? "  (DRY RUN — no upstream fetches)" : ""}${MAX_MINUTES ? `  ·  budget ${MAX_MINUTES} min` : ""}\n`);
 
 // Optional credentials: detected, never printed, never fatal.
 for (const [name, feature] of [
@@ -352,6 +370,11 @@ if (JOBS.includes("rank_check")) {
   log(`2. rank_check — ${queue.length} unique (term, platform, country) triples`);
 
   for (const kw of queue) {
+    if (outOfTime()) {
+      jobWarnings.push(`rank_check stopped at ${done}/${queue.length} — the ${MAX_MINUTES}-minute budget ran out. The remaining keywords are the stalest, so tomorrow's run takes them first.`);
+      break;
+    }
+
     // Every tracked app on this keyword's platform is a candidate for a rank in this SERP.
     const candidates = await q(
       db,
@@ -384,24 +407,42 @@ if (JOBS.includes("rank_check")) {
       const { orderedIds, top, depth } = result;
 
       // --- ranks for every tracked app, from this one response -------------
-      for (const app of candidates) {
-        if (app.platform !== kw.platform) continue;
-        const idx = orderedIds.indexOf(String(app.store_id));
-        const rank = idx === -1 ? null : idx + 1;
+      // Two round trips total, not two per app: fetch every app's previous state at once,
+      // then write all the rankings rows in a single multi-row upsert.
+      const relevant = candidates.filter((a) => a.platform === kw.platform);
+      if (relevant.length) {
+        const previous = await q(
+          db,
+          `select app_id, rank, last_known_rank from ranking_current
+            where keyword_id = $1 and app_id = any($2::uuid[])`,
+          [kw.keyword_id, relevant.map((a) => a.app_id)],
+        );
+        const prevByApp = new Map(previous.map((p) => [p.app_id, p]));
 
-        const last = await q1(db, `select rank, last_known_rank from ranking_current where app_id = $1 and keyword_id = $2`, [app.app_id, kw.keyword_id]);
-        const lastKnown = rank != null ? null : (last?.rank ?? last?.last_known_rank ?? null);
+        const cols = 7;
+        const values = [];
+        const params = [];
+        relevant.forEach((app, i) => {
+          const idx = orderedIds.indexOf(String(app.store_id));
+          const rank = idx === -1 ? null : idx + 1;
+          const prev = prevByApp.get(app.app_id);
+          // Carry the last known position forward so the UI can say ">200 (was #163)".
+          const lastKnown = rank != null ? null : (prev?.rank ?? prev?.last_known_rank ?? null);
+          const base = i * cols;
+          values.push(`($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7})`);
+          params.push(app.app_id, kw.keyword_id, RUN_DATE, rank, depth, rank != null, lastKnown);
+        });
 
         await db.query(
           `insert into rankings (app_id, keyword_id, checked_on, rank, crawl_depth, found, last_known_rank)
-           values ($1,$2,$3,$4,$5,$6,$7)
+           values ${values.join(",")}
            on conflict (app_id, keyword_id, checked_on) do update set
              rank = excluded.rank, crawl_depth = excluded.crawl_depth,
              found = excluded.found, last_known_rank = excluded.last_known_rank,
              checked_at = now()`,
-          [app.app_id, kw.keyword_id, RUN_DATE, rank, depth, rank != null, lastKnown],
+          params,
         );
-        ranksWritten++;
+        ranksWritten += relevant.length;
       }
 
       // --- the SERP itself, for difficulty / outliers / the icon strip -----
@@ -498,24 +539,82 @@ async function fetchAndroidSerp(kw) {
   return { orderedIds: rows.map((r) => r.store_id), top, depth: rows.length };
 }
 
+/**
+ * Persists one SERP in TWO round trips instead of sixty.
+ *
+ * The naive loop did `upsertApp` + one insert per row, so a 30-row SERP cost 60 sequential
+ * round trips. Against Neon that measured at 72ms each — 4.3 seconds per keyword of pure
+ * database latency, versus about 1 second of actual upstream work. The rate limiter was
+ * never the dominant cost here; the round trips were.
+ *
+ * Batching both into multi-row statements is what actually shortens the nightly run, and it
+ * is the difference between the crawl scaling with network politeness and scaling with
+ * network latency × row count.
+ */
 async function persistSerp(kw, top) {
-  for (const row of top) {
-    if (!row.store_id) continue;
-    const appId = await upsertApp(db, {
-      platform: kw.platform,
-      store_id: row.store_id,
-      name: row.name ?? `(app ${row.store_id})`,
-      ...(row.meta ?? {}),
-    });
-    await db.query(
-      `insert into serp_results (keyword_id, captured_on, position, app_id, rating_count, rating_average, title_match)
-       values ($1,$2,$3,$4,$5,$6,$7)
-       on conflict (keyword_id, captured_on, position) do update set
-         app_id = excluded.app_id, rating_count = excluded.rating_count,
-         rating_average = excluded.rating_average, title_match = excluded.title_match`,
-      [kw.keyword_id, RUN_DATE, row.position, appId, row.rating_count, row.rating_average, titleMatchOf(row.name, kw.term)],
+  const rows = top.filter((r) => r.store_id);
+  if (!rows.length) return;
+
+  // --- 1. every app in one statement --------------------------------------
+  const appCols = 8;
+  const appValues = [];
+  const appParams = [];
+  rows.forEach((row, i) => {
+    const m = row.meta ?? {};
+    const base = i * appCols;
+    appValues.push(`($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8})`);
+    appParams.push(
+      kw.platform,
+      String(row.store_id),
+      row.name ?? m.name ?? `(app ${row.store_id})`,
+      m.bundle_id ?? null,
+      m.developer_name ?? null,
+      m.developer_id ?? null,
+      m.icon_url ?? null,
+      m.primary_genre ?? null,
     );
+  });
+
+  const { rows: appRows } = await db.query(
+    `insert into apps (platform, store_id, name, bundle_id, developer_name, developer_id, icon_url, primary_genre)
+     values ${appValues.join(",")}
+     on conflict (platform, store_id) do update set
+       -- coalesce so a thin SERP row never blanks a field a richer source already filled
+       name           = coalesce(excluded.name, apps.name),
+       bundle_id      = coalesce(excluded.bundle_id, apps.bundle_id),
+       developer_name = coalesce(excluded.developer_name, apps.developer_name),
+       developer_id   = coalesce(excluded.developer_id, apps.developer_id),
+       icon_url       = coalesce(excluded.icon_url, apps.icon_url),
+       primary_genre  = coalesce(excluded.primary_genre, apps.primary_genre),
+       updated_at     = now()
+     returning id, store_id`,
+    appParams,
+  );
+  const idByStoreId = new Map(appRows.map((r) => [String(r.store_id), r.id]));
+
+  // --- 2. every SERP position in one statement ------------------------------
+  const serpCols = 7;
+  const serpValues = [];
+  const serpParams = [];
+  let n = 0;
+  for (const row of rows) {
+    const appId = idByStoreId.get(String(row.store_id));
+    if (!appId) continue;
+    const base = n * serpCols;
+    serpValues.push(`($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7})`);
+    serpParams.push(kw.keyword_id, RUN_DATE, row.position, appId, row.rating_count, row.rating_average, titleMatchOf(row.name, kw.term));
+    n++;
   }
+  if (!n) return;
+
+  await db.query(
+    `insert into serp_results (keyword_id, captured_on, position, app_id, rating_count, rating_average, title_match)
+     values ${serpValues.join(",")}
+     on conflict (keyword_id, captured_on, position) do update set
+       app_id = excluded.app_id, rating_count = excluded.rating_count,
+       rating_average = excluded.rating_average, title_match = excluded.title_match`,
+    serpParams,
+  );
 }
 
 function titleMatchOf(name, term) {
@@ -542,6 +641,10 @@ if (JOBS.includes("autocomplete")) {
   log(`3. autocomplete — ${slice.length} of ${seeds.length} (root, country) pairs this rotation`);
 
   for (const { root, country, platform } of slice) {
+    if (outOfTime()) {
+      jobWarnings.push(`autocomplete stopped at ${done}/${slice.length} — budget exhausted. The prefix space rotates nightly anyway, so this slice simply resumes tomorrow.`);
+      break;
+    }
     try {
       if (DRY) { done++; continue; }
       const suggestions = platform === "ios"
@@ -649,6 +752,13 @@ if (JOBS.includes("metrics")) {
   log(`4. metrics — ${stale.length} keyword(s) needing a popularity refresh`);
 
   for (const kw of stale) {
+    // Popularity carries a 7-day TTL, so this job is the most deferrable thing in the crawl.
+    // It yields its remaining budget first, and the `metrics_updated_at nulls first` ordering
+    // means the longest-unscored keywords are always the ones that did get done.
+    if (outOfTime()) {
+      jobWarnings.push(`metrics stopped at ${done}/${stale.length} — budget exhausted. Popularity has a 7-day TTL, so a deferred keyword is not stale data, just not-yet-refreshed.`);
+      break;
+    }
     try {
       if (DRY) { done++; continue; }
 
@@ -1313,8 +1423,21 @@ async function finalReport() {
   const stats = fetchStats();
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
 
+  const minutes = (Number(seconds) / 60).toFixed(1);
   log(`\n${"─".repeat(70)}`);
-  log(`Crawl finished in ${seconds}s.`);
+  log(`Crawl finished in ${seconds}s (${minutes} min).`);
+  if (MAX_MINUTES) {
+    // GitHub bills whole minutes, rounded up, per job — so report what this run actually costs.
+    const billed = Math.ceil(Number(minutes));
+    log(`  budget ${MAX_MINUTES} min (governs the keyword-scaling jobs) · ran ${minutes} min · billed ${billed} → ~${billed * 30} min/month`);
+    if (outOfTime()) {
+      // Be precise about what the ceiling does and does not cover, or the number above looks
+      // like the budget simply failed.
+      log(`  ⚠ budget exhausted — rank_check/autocomplete/metrics yielded; unfinished work resumes tomorrow, oldest first.`);
+      log(`    rollup, reviews and alerts still ran: they scale with APP count, not keyword count,`);
+      log(`    and skipping rollup would leave the dashboard inconsistent with the ranks just written.`);
+    }
+  }
   for (const [bucketName, s] of Object.entries(stats)) {
     log(`  ${bucketName.padEnd(18)} ${String(s.calls).padStart(4)} calls  ${s.throttled} throttled${s.cooling_down ? "  (COOLING DOWN)" : ""}`);
   }
