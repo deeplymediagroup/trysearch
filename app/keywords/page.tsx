@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { KeywordsTable } from "@/components/KeywordsTable";
 import { DiscoveredTable } from "@/components/DiscoveredTable";
@@ -70,18 +69,25 @@ export default async function KeywordsPage({ searchParams }: { searchParams: Pro
         ))}
       </nav>
 
-      <Suspense fallback={<p className="p-6 text-[12px] text-[var(--fg-subtle)]">Loading keywords…</p>}>
-        {tab === "discovered" ? (
-          <DiscoveredTable
-            rows={discovered as any}
-            countries={countries}
-            trackedAppId={active.tracked_app_id}
-            autoTrackRanked={active.auto_track_ranked}
-          />
-        ) : (
-          <KeywordsTable rows={rows} countries={countries} />
-        )}
-      </Suspense>
+      {/*
+        No <Suspense> here, deliberately. These tables call useSearchParams() (via useFilters),
+        and wrapping that in a Suspense boundary opts the whole subtree OUT of server rendering:
+        the server streams the fallback, the real markup arrives in a hidden div, and it only
+        appears if the client finishes hydrating that boundary. It didn't — the page sat on
+        "Loading keywords…" forever in production. There is nothing async in here to wait for
+        (rows/discovered/countries are all awaited above), so the boundary bought nothing and
+        cost the entire page. /rankings and /reviews render the same tables without one.
+      */}
+      {tab === "discovered" ? (
+        <DiscoveredTable
+          rows={discovered as any}
+          countries={countries}
+          trackedAppId={active.tracked_app_id}
+          autoTrackRanked={active.auto_track_ranked}
+        />
+      ) : (
+        <KeywordsTable rows={rows} countries={countries} />
+      )}
     </AppShell>
   );
 }
