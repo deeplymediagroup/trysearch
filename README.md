@@ -51,7 +51,7 @@ popularity, difficulty and rank until the next crawl fills them in.
 | `npm run crawl -- --all` | The full nightly crawl |
 | `npm run crawl -- --jobs rank_check,rollup` | Just some jobs |
 | `npm run crawl -- --limit 20 --dry` | Plan a run without fetching anything |
-| `npm test` | 131 unit tests over the scoring engine, formatters and app resolution |
+| `npm test` | 138 unit tests over the scoring engine, formatters, app resolution and the API scope gate |
 | `node scripts/create-api-key.mjs` | Mints a Bearer token for the REST API and the MCP server |
 | `node scripts/gate3.mjs` | Verifies the crawler wrote correct, correctly-signed data |
 | `node scripts/gate5.mjs` | Verifies the competitive buckets and the alert pipeline |
@@ -119,7 +119,22 @@ Run it from GitHub Actions (`.github/workflows/crawl.yml`, 02:00 UTC) or from yo
 Both are live and share one operation registry (`lib/api-core.ts`), so a change lands in both at once:
 
 - **REST** — `/api/v1/...`, Bearer token from `scripts/create-api-key.mjs`.
-- **MCP** — `/mcp`, 17 tools: stateless store research, workspace reads, and a few writes.
+- **MCP** — `/mcp`, 35 tools: stateless store research, workspace reads, and workspace writes.
+
+**Keys are read-only unless you say otherwise.**
+
+```bash
+node scripts/create-api-key.mjs "claude-code"                 # read-only
+node scripts/create-api-key.mjs "deploy-bot" --scope write    # may also mutate
+```
+
+A read key is refused (`403 forbidden`) on every operation that changes workspace data, and
+the MCP server does not even list those tools to it — 24 tools instead of 35. The check lives
+in one place, `runOp()`, so it cannot be forgotten when a new surface or operation is added.
+
+Every list endpoint is **cursor-paginated**: responses are `{ items, pagination: { next_cursor,
+has_more } }`, and you pass `?cursor=` to continue. Cursors are keyset, not offset — the nightly
+crawl mutates these tables while you page, and an offset would silently repeat or skip rows.
 
 ---
 
@@ -130,6 +145,7 @@ Both are live and share one operation registry (`lib/api-core.ts`), so a change 
 - **Keyword relevance scoring** — the one AI feature of the four still missing. The other three (competitive landscape, listing generation, AI review analysis) are built and gated behind an explicit button, off unless `ANTHROPIC_API_KEY` is set. `discovered_keywords.relevance` stays NULL until relevance scoring exists.
 - **Metrics for discovered keywords.** `rank_check` fetches SERPs for *tracked* keywords only — that queue is the entire crawl budget — so a discovered keyword has no rank, popularity or difficulty of its own. The "Auto-track ranked" switch is wired end to end but stays quiet until discoveries get a rank source.
 - **The screenshot studio** — a large, self-contained canvas editor, unrelated to everything else.
+- **Android reviews.** Google exposes no free review feed, so `reviews` is iOS-only; the Play Console credential path would be needed.
 - **The CLI.** REST + MCP cover the automation needs.
 
 ---

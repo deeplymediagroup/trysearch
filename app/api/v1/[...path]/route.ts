@@ -5,7 +5,7 @@
  * Envelope: { data } on success, { error: { code, message } } on failure.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { OPS, ApiError } from "@/lib/api-core";
+import { OPS, ApiError, runOp } from "@/lib/api-core";
 import { authenticate, rateLimitHeaders } from "@/lib/api-auth";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,17 @@ const GET_ROUTES: Record<string, string> = {
   "charts/top": "top_charts",
   apps: "list_apps",
   alerts: "list_alerts",
+  "alert-rules": "list_alert_rules",
   "competitive-positions": "competitive_positions",
+  competitors: "list_competitors",
+  discoveries: "keyword_discoveries",
+  changes: "app_changes",
+  "keywords/rankings": "keyword_rankings",
+  "keywords/serp": "serp_history",
+  "competitor-keywords": "competitor_keywords",
+  "competitor-landscape": "competitor_landscape",
+  "apps/find": "find_app",
+  reviews: "app_reviews_stored",
 };
 
 function fail(err: unknown, headers: Record<string, string> = {}) {
@@ -52,7 +62,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ path: strin
     }
     if (!opName) throw new ApiError("not_found", `No such endpoint: GET /api/v1/${joined}`, 404);
 
-    const data = await OPS[opName].run(params);
+    const data = await runOp(opName, params, id);
     return NextResponse.json({ data }, { headers });
   } catch (err) {
     return fail(err, headers);
@@ -69,14 +79,20 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ path: stri
 
     // POST /apps/{tracked_app_id}/keywords → track_keywords
     if (path[0] === "apps" && path.length === 3 && path[2] === "keywords") {
-      const data = await OPS.track_keywords.run({ ...body, tracked_app_id: path[1] });
+      const data = await runOp("track_keywords", { ...body, tracked_app_id: path[1] }, id);
       return NextResponse.json({ data }, { status: 201, headers });
     }
     // POST /tracked-keywords/{id} → note / star
     if (path[0] === "tracked-keywords" && path.length === 2) {
-      if (typeof body.starred === "boolean") await OPS.star_keyword.run({ tracked_keyword_id: path[1], starred: body.starred });
-      if ("note" in body) await OPS.set_keyword_note.run({ tracked_keyword_id: path[1], note: body.note });
+      if (typeof body.starred === "boolean") await runOp("star_keyword", { tracked_keyword_id: path[1], starred: body.starred }, id);
+      if ("note" in body) await runOp("set_keyword_note", { tracked_keyword_id: path[1], note: body.note }, id);
       return NextResponse.json({ data: { ok: true } }, { headers });
+    }
+    // POST /ops/{op_name} → any write op by name, body as params. One route rather than a
+    // bespoke path per verb: the registry already names and validates every operation.
+    if (path[0] === "ops" && path.length === 2) {
+      const data = await runOp(path[1], body, id);
+      return NextResponse.json({ data }, { headers });
     }
 
     throw new ApiError("not_found", `No such endpoint: POST /api/v1/${path.join("/")}`, 404);

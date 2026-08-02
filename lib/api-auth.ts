@@ -9,6 +9,8 @@ import { ApiError } from "@/lib/api-core";
 export type ApiIdentity = {
   key_id: string;
   workspace_id: string;
+  /** 'read' refuses every op marked `write: true`. Enforced centrally in runOp(). */
+  scope: "read" | "write";
   limit: number;
   remaining: number;
 };
@@ -19,8 +21,8 @@ export async function authenticate(req: Request): Promise<ApiIdentity> {
   if (!token) throw new ApiError("unauthorized", "Missing or invalid Authorization header.", 401);
 
   const hash = createHash("sha256").update(token).digest("hex");
-  const key = await q1<{ id: string; workspace_id: string; requests_per_day: number }>(
-    `select id, workspace_id, requests_per_day from api_keys
+  const key = await q1<{ id: string; workspace_id: string; scope: "read" | "write"; requests_per_day: number }>(
+    `select id, workspace_id, scope, requests_per_day from api_keys
       where token_hash = $1 and revoked_at is null`,
     [hash],
   );
@@ -40,6 +42,7 @@ export async function authenticate(req: Request): Promise<ApiIdentity> {
   return {
     key_id: key.id,
     workspace_id: key.workspace_id,
+    scope: key.scope === "write" ? "write" : "read",
     limit: key.requests_per_day,
     remaining: Math.max(0, key.requests_per_day - used),
   };

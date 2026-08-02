@@ -709,11 +709,21 @@ create table if not exists api_keys (
   name              text,
   token_hash        text not null unique,   -- store a hash, never the token
   prefix            text not null,          -- first 8 chars, for display
+  -- Read is the default on purpose: an agent must not be able to untrack 2,000 keywords
+  -- on a misread. Ops that mutate are marked `write: true` in lib/api-core.ts and are
+  -- refused (403 forbidden) for a read key.
+  scope             text not null default 'read' check (scope in ('read','write')),
   requests_per_day  integer not null default 1000,
   last_used_at      timestamptz,
   revoked_at        timestamptz,
   created_at        timestamptz not null default now()
 );
+
+-- api_keys predates `scope`; existing keys migrate to read-only, which is the safe default.
+alter table api_keys add column if not exists scope text not null default 'read';
+do $$ begin
+  alter table api_keys add constraint api_keys_scope_check check (scope in ('read','write'));
+exception when duplicate_object then null; end $$;
 
 create table if not exists api_usage (
   api_key_id        uuid not null references api_keys(id) on delete cascade,

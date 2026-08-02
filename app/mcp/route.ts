@@ -10,7 +10,7 @@
  * the protocol a stateless tool server needs; add the SDK if sessions/resources ever matter.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { OPS, ApiError } from "@/lib/api-core";
+import { OPS, ApiError, runOp } from "@/lib/api-core";
 import { authenticate } from "@/lib/api-auth";
 
 export const dynamic = "force-dynamic";
@@ -27,8 +27,9 @@ function rpcResult(id: unknown, result: unknown) {
 }
 
 export async function POST(req: NextRequest) {
+  let identity;
   try {
-    await authenticate(req);
+    identity = await authenticate(req);
   } catch (err) {
     const e = err instanceof ApiError ? err : new ApiError("internal_error", "Auth failed.", 500);
     return NextResponse.json({ error: { code: e.code, message: e.message } }, { status: e.status });
@@ -61,19 +62,23 @@ export async function POST(req: NextRequest) {
 
       case "tools/list":
         return rpcResult(id, {
-          tools: Object.entries(OPS).map(([name, op]) => ({
-            name: `search_${name}`,
-            description: op.description,
-            inputSchema: op.schema,
-          })),
+          // A read-only key is not shown the write tools at all. Listing a tool the caller
+          // cannot use just invites the agent to try it and read a 403 as a bug.
+          tools: Object.entries(OPS)
+            .filter(([, op]) => identity.scope === "write" || !op.write)
+            .map(([name, op]) => ({
+              name: `search_${name}`,
+              description: op.description,
+              inputSchema: op.schema,
+            })),
         });
 
       case "tools/call": {
         const toolName: string = params?.name ?? "";
-        const op = OPS[toolName.replace(/^search_/, "")];
-        if (!op || !toolName.startsWith("search_")) return rpcError(id, -32602, `Unknown tool: ${toolName}`);
+        const opName = toolName.replace(/^search_/, "");
+        if (!OPS[opName] || !toolName.startsWith("search_")) return rpcError(id, -32602, `Unknown tool: ${toolName}`);
         try {
-          const result = await op.run(params?.arguments ?? {});
+          const result = await runOp(opName, params?.arguments ?? {}, identity);
           return rpcResult(id, { content: [{ type: "text", text: JSON.stringify(result) }] });
         } catch (err: any) {
           // Tool-level failures are results with isError, not protocol errors.
