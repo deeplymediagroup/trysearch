@@ -195,6 +195,40 @@ export async function getVisibility7dAgo(appId: string): Promise<number | null> 
   return row?.visibility == null ? null : Number(row.visibility);
 }
 
+/**
+ * Latest revenue estimate for every app this workspace tracks — own apps AND competitors,
+ * which is the point: your own number is a sanity check on the competitors' numbers.
+ */
+export async function getRevenueEstimates(workspaceId: string) {
+  return q(
+    `select ta.role, a.name, a.platform, a.store_id,
+            re.model, re.confidence, re.monthly_usd_low, re.monthly_usd_high, re.display,
+            re.factors, re.estimated_on,
+            (select count(*)::int from app_iaps i where i.app_id = a.id) as iap_count
+       from tracked_apps ta
+       join apps a on a.id = ta.app_id
+       left join lateral (
+         select model, confidence, monthly_usd_low, monthly_usd_high, display, factors, estimated_on
+           from revenue_estimates where app_id = a.id order by estimated_on desc limit 1
+       ) re on true
+      where ta.workspace_id = $1 and ta.is_active
+      order by (ta.role = 'own') desc, re.monthly_usd_high desc nulls last, a.name`,
+    [workspaceId],
+  );
+}
+
+/** The real scraped in-app prices behind one app's estimate. */
+export async function getAppIaps(storeId: string, platform: string) {
+  return q(
+    `select i.name, i.price_cents, i.currency, i.is_subscription, i.period, i.annualised_cents
+       from app_iaps i join apps a on a.id = i.app_id
+      where a.store_id = $1 and a.platform = $2
+        and i.captured_on = (select max(captured_on) from app_iaps where app_id = a.id)
+      order by i.annualised_cents desc nulls last`,
+    [storeId, platform],
+  );
+}
+
 /** When did the crawl last touch this app? Drives the required staleness note. */
 export async function getStaleness(appId: string): Promise<Date | null> {
   const row = await q1<{ at: Date | null }>(

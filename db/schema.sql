@@ -656,7 +656,7 @@ create table if not exists crawl_jobs (
   id                uuid primary key default gen_random_uuid(),
   kind              text not null check (kind in
                       ('rank_check','autocomplete','app_snapshot','reviews','metrics',
-                       'discovery','rollup','alerts','asc_sync','play_sync')),
+                       'discovery','rollup','alerts','asc_sync','play_sync','revenue')),
   status            text not null default 'queued'
                     check (status in ('queued','running','done','failed','partial')),
   scope             jsonb,                  -- {app_id, country, ...}
@@ -669,6 +669,15 @@ create table if not exists crawl_jobs (
   finished_at       timestamptz,
   created_at        timestamptz not null default now()
 );
+
+-- `revenue` joined the job list after this table shipped, so widen the CHECK on re-migrate.
+-- Dropping and re-adding is the only way to change a CHECK; the list here is the full one.
+do $$ begin
+  alter table crawl_jobs drop constraint if exists crawl_jobs_kind_check;
+  alter table crawl_jobs add constraint crawl_jobs_kind_check check (kind in
+    ('rank_check','autocomplete','app_snapshot','reviews','metrics',
+     'discovery','rollup','alerts','asc_sync','play_sync','revenue'));
+end $$;
 
 create index if not exists crawl_jobs_open on crawl_jobs(kind, status, created_at);
 

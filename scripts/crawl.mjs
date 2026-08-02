@@ -46,6 +46,7 @@ import {
   evaluateAlerts,
   meanStdDev,
   isBranded,
+  revenueEstimate,
 } from "../lib/scoring/scores.mjs";
 
 // ---------------------------------------------------------------------------
@@ -78,7 +79,7 @@ const WATCHED = [
   ["icon_url", "icon"],
 ];
 
-const ALL_JOBS = ["app_snapshot", "rank_check", "autocomplete", "metrics", "discovery", "reviews", "rollup", "alerts"];
+const ALL_JOBS = ["app_snapshot", "revenue", "rank_check", "autocomplete", "metrics", "discovery", "reviews", "rollup", "alerts"];
 const JOBS = has("--all") || !arg("--jobs") ? ALL_JOBS : arg("--jobs").split(",").map((s) => s.trim()).filter(Boolean);
 const RUN_DATE = arg("--date") ?? new Date().toISOString().slice(0, 10);
 const LIMIT = Number(arg("--limit", "0")) || 0;
@@ -328,6 +329,109 @@ async function insertEvent(app, country, kind, field, oldValue, newValue, releas
 // exists. As a const it would have thrown on day 2 while passing cleanly on day 1.
 function truncate(s) {
   return s == null ? null : s.length > 500 ? `${s.slice(0, 497)}…` : s;
+}
+
+// ===========================================================================
+// JOB 1b — revenue: real scraped IAP prices → app_iaps + revenue_estimates
+// ===========================================================================
+/**
+ * Runs immediately after app_snapshot ON PURPOSE, and that placement is the whole reason this
+ * job is affordable. `appleInAppPurchases` reads the same store page as `appleAppSSR` and uses
+ * the SAME cache key (`ssr:app:{country}:{id}`), and `playAppDetail` likewise — so by the time
+ * this job runs, both fetches are already in upstream_cache from job 1. The marginal network
+ * cost of estimating revenue is therefore ~zero, not "one store-page fetch per app per day".
+ *
+ * The scoring is entirely in lib/scoring/scores.mjs (pure, unit-tested). This job only feeds it
+ * real inputs and records what it was told, including the factors, so /revenue can show its work.
+ */
+if (JOBS.includes("revenue")) {
+  const jobId = await startJob("revenue", { date: RUN_DATE }, trackedApps.length);
+  const jobWarnings = [];
+  let done = 0;
+  let estimated = 0;
+  let iapRows = 0;
+
+  log(`1b. revenue — ${trackedApps.length} app(s), scoring from real scraped prices`);
+
+  for (const app of trackedApps) {
+    try {
+      if (DRY) { await bumpJob(jobId, ++done); continue; }
+      // ALWAYS the US storefront, never countriesFor(app). revenue_estimates is denominated in
+      // USD (monthly_usd_low/high, "$271K/mo"), so the prices feeding it have to be USD — and
+      // countriesFor returns whatever storefront the app happens to track first, which for
+      // Mindset was 'gb'. That silently produced GBP prices, which the estimator then read as
+      // "no in-app purchases", classifying a subscription app as ad-supported at <$5K/mo.
+      const country = "us";
+
+      // Latest snapshot carries the rating count (iOS) and the exact install count (Android).
+      const snap = await q1(
+        db,
+        `select rating_count, install_count from app_snapshots
+          where app_id = $1 order by captured_on desc limit 1`,
+        [app.app_id],
+      );
+      const meta = await q1(db, `select price_cents, released_at from apps where id = $1`, [app.app_id]);
+
+      // Months on sale — the divisor that turns a lifetime total into a monthly rate. A wrong
+      // default here silently scales the whole estimate, so it comes from the real release date.
+      const lifetimeMonths = meta?.released_at
+        ? Math.max(1, Math.round((Date.now() - new Date(meta.released_at).getTime()) / (30 * 24 * 3600 * 1000)))
+        : null;
+
+      let iaps = [];
+      let priceCents = meta?.price_cents ?? 0;
+      let realInstalls = null;
+
+      if (app.platform === "ios") {
+        iaps = await appleInAppPurchases(app.store_id, country);
+      } else {
+        const detail = await playAppDetail(app.store_id, country);
+        priceCents = detail?.price_cents ?? priceCents;
+        realInstalls = detail?.real_installs ?? snap?.install_count ?? null;
+        // Play's page does not itemise IAP prices the way Apple's does; the flag is all we get.
+        if (detail?.has_iap) iaps = [];
+      }
+
+      for (const iap of iaps) {
+        const res = await db.query(
+          `insert into app_iaps (app_id, name, price_cents, currency, is_subscription, period, annualised_cents, captured_on)
+           values ($1,$2,$3,$4,$5,$6,$7,$8)
+           on conflict (app_id, name, captured_on) do update set
+             price_cents = excluded.price_cents, annualised_cents = excluded.annualised_cents
+           returning (xmax = 0) as is_new`,
+          [app.app_id, iap.name, iap.price_cents, iap.currency, iap.is_subscription, iap.period, iap.annualised_cents, RUN_DATE],
+        );
+        if (res.rows[0]?.is_new) iapRows++;
+      }
+
+      const est = revenueEstimate({
+        platform: app.platform,
+        realInstalls: realInstalls == null ? null : Number(realInstalls),
+        ratingCount: snap?.rating_count == null ? null : Number(snap.rating_count),
+        priceCents,
+        iaps,
+        lifetimeMonths,
+      });
+
+      await db.query(
+        `insert into revenue_estimates (app_id, estimated_on, model, confidence, monthly_usd_low, monthly_usd_high, display, factors)
+         values ($1,$2,$3,$4,$5,$6,$7,$8)
+         on conflict (app_id, estimated_on) do update set
+           model = excluded.model, confidence = excluded.confidence,
+           monthly_usd_low = excluded.monthly_usd_low, monthly_usd_high = excluded.monthly_usd_high,
+           display = excluded.display, factors = excluded.factors, computed_at = now()`,
+        [app.app_id, RUN_DATE, est.model, est.confidence, est.monthly_usd_low, est.monthly_usd_high, est.display, JSON.stringify(est.factors)],
+      );
+      estimated++;
+    } catch (err) {
+      jobWarnings.push(`revenue ${app.name}: ${err.message}`);
+    }
+    await bumpJob(jobId, ++done);
+  }
+
+  log(`   ${estimated} estimate(s), ${iapRows} new in-app price(s)${jobWarnings.length ? `, ${jobWarnings.length} warning(s)` : ""}`);
+  await finishJob(jobId, jobWarnings.length ? "partial" : "done", jobWarnings);
+  warnings.push(...jobWarnings);
 }
 
 // ===========================================================================

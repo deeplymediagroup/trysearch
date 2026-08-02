@@ -108,7 +108,7 @@ These are not style preferences. Each one is load-bearing, and most have a test.
 
 One insight makes the whole thing affordable: **one search-results fetch serves every app tracking that keyword.** The crawler loops over unique `(term, platform, country)` triples, fetches once, then extracts the rank of every tracked app in that response and computes difficulty from the same payload. Cost scales with distinct keywords, not with users × keywords.
 
-Eight jobs run in order: `app_snapshot` → `rank_check` → `autocomplete` → `metrics` → `discovery` → `reviews` → `rollup` → `alerts`.
+Nine jobs run in order: `app_snapshot` → `revenue` → `rank_check` → `autocomplete` → `metrics` → `discovery` → `reviews` → `rollup` → `alerts`.
 
 Run it from GitHub Actions (`.github/workflows/crawl.yml`, 02:00 UTC) or from your own machine. **Watch the Actions minutes** — the free tier is ~2,000/month and an unbounded nightly crawl would exceed that. The workflow passes `--limit` for exactly this reason, and running locally is the genuinely unlimited fallback.
 
@@ -141,7 +141,6 @@ crawl mutates these tables while you page, and an offset would silently repeat o
 ## What is not built yet
 
 - **App Store Connect and Play Console integrations.** No credentials are read, so `/performance` and `/engagement` render permanently-empty states and the Listing Manager falls back to the public snapshot instead of the hidden Keywords field.
-- **The revenue pipeline.** `revenueEstimate()`/`revenueModel()` are implemented and unit-tested, but no crawl job calls them, so `/revenue` is empty.
 - **Keyword relevance scoring** — the one AI feature of the four still missing. The other three (competitive landscape, listing generation, AI review analysis) are built and gated behind an explicit button, off unless `ANTHROPIC_API_KEY` is set. `discovered_keywords.relevance` stays NULL until relevance scoring exists.
 - **Metrics for discovered keywords.** `rank_check` fetches SERPs for *tracked* keywords only — that queue is the entire crawl budget — so a discovered keyword has no rank, popularity or difficulty of its own. The "Auto-track ranked" switch is wired end to end but stays quiet until discoveries get a rank source.
 - **The screenshot studio** — a large, self-contained canvas editor, unrelated to everything else.

@@ -74,6 +74,13 @@ function paged<T extends Record<string, any>>(rows: T[], n: number, idField: str
  * Scope lives here rather than in the two route handlers on purpose: a check duplicated per
  * handler is a check someone forgets to add to the third one. `write: true` on the op is the
  * single declaration, and this is the single place it is honoured.
+ *
+ * What `write` protects is WORKSPACE data — tracked apps, tracked keywords, competitors, alert
+ * rules, annotations. It is not a promise that a read op touches no rows at all: read ops may
+ * fill the shared public-data caches (`apps`, `keywords`, `revenue_estimates`, `upstream_cache`)
+ * as a side effect of measuring something, exactly as the crawler does. Those rows are global
+ * measurements, not this workspace's configuration, and a read key losing that ability would
+ * make the research tools useless.
  */
 export async function runOp(name: string, params: unknown, identity: { scope: "read" | "write" }) {
   const op = OPS[name];
@@ -196,18 +203,53 @@ export const OPS: Record<string, Op> = {
   },
 
   app_revenue: {
-    description: "Latest stored revenue estimate for a tracked app, with the model and confidence.",
-    schema: { type: "object", properties: { store: STORE, id: { type: "string" } }, required: ["store", "id"] },
-    async run({ store, id }) {
-      const row = await q1(
-        `select a.name, a.store_id, re.model, re.confidence, re.monthly_usd_low, re.monthly_usd_high, re.display, re.factors, re.estimated_on
-           from apps a join revenue_estimates re on re.app_id = a.id
-          where a.store_id = $1 and a.platform = $2
-          order by re.estimated_on desc limit 1`,
-        [id, store],
-      );
-      if (!row) throw new ApiError("not_found", "No revenue estimate stored — the app isn't in the crawl set.", 404);
-      return row;
+    description:
+      "Estimated monthly revenue, monetization model and confidence for one app or many. Pass `id` for one, or `ids` for up to 25 — a bulk call returns one result per app and never fails the whole batch. Computes on demand for an app we have never seen.",
+    schema: {
+      type: "object",
+      properties: {
+        store: STORE,
+        id: { type: "string", description: "One store id" },
+        ids: { type: "array", items: { type: "string" }, description: "Up to 25 store ids" },
+      },
+      required: ["store"],
+    },
+    async run({ store, id, ids }) {
+      const list: string[] = (ids ?? (id ? [id] : [])).slice(0, 25).map(String);
+      if (!list.length) throw new ApiError("bad_request", "Pass id or ids.");
+
+      const out = [];
+      for (const storeId of list) {
+        try {
+          const row = await q1(
+            `select a.name, a.store_id, a.platform, re.model, re.confidence, re.monthly_usd_low,
+                    re.monthly_usd_high, re.display, re.factors, re.estimated_on
+               from apps a join revenue_estimates re on re.app_id = a.id
+              where a.store_id = $1 and a.platform = $2
+              order by re.estimated_on desc limit 1`,
+            [storeId, store],
+          );
+          if (row) {
+            out.push({ ...row, source: "crawl" });
+            continue;
+          }
+          // Nothing stored: compute it now rather than 404. This op used to always 404 for any
+          // app outside the crawl set, which made it useless to an agent asking about a
+          // competitor it had just found.
+          const { lookupRevenue } = await import("@/app/actions/revenue");
+          const live = await lookupRevenue(storeId);
+          if (live.error || !live.result) {
+            out.push({ store_id: storeId, error: live.error ?? "Could not estimate this app." });
+          } else {
+            out.push({ ...live.result, source: "on_demand" });
+          }
+        } catch (err: any) {
+          // Per-item error, never a failed batch (spec §2.2).
+          out.push({ store_id: storeId, error: err.message });
+        }
+      }
+      // A single-id call keeps returning a single object, so existing callers don't break.
+      return list.length === 1 && !ids ? out[0] : out;
     },
   },
 
