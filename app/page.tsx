@@ -75,8 +75,8 @@ export default function LandingPage() {
   https://<your-host>/mcp --header "Authorization: Bearer <key>"`}
         </pre>
         <p className="mt-2 text-[12px] text-[var(--fg-muted)]">
-          35 tools&apos; worth of capability behind one endpoint: keyword metrics in bulk, listing audits, rank history,
-          competitor landscapes, review feeds. The same operations are a plain REST API at <code className="num">/api/v1</code>.
+          Seventeen tools behind one endpoint: bulk keyword metrics, listing audits, rank history, competitor
+          landscapes, review feeds. The same operations are a plain REST API at <code className="num">/api/v1</code>.
         </p>
       </section>
 

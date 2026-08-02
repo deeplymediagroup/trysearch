@@ -83,9 +83,15 @@ export async function generateLandscape(trackedAppId: string) {
   if (!aiEnabled()) return { error: "ANTHROPIC_API_KEY is not set." };
   const ws = await workspaceId();
 
+  // Ratings and subtitle live on app_snapshots, not apps — join the latest snapshot.
   const app = await q1<{ app_id: string; name: string; subtitle: string | null; rating_average: number | null; rating_count: number | null }>(
-    `select ta.app_id, a.name, a.subtitle, a.rating_average, a.rating_count
-       from tracked_apps ta join apps a on a.id = ta.app_id
+    `select ta.app_id, a.name, s.subtitle, s.rating_average, s.rating_count
+       from tracked_apps ta
+       join apps a on a.id = ta.app_id
+       left join lateral (
+         select subtitle, rating_average, rating_count from app_snapshots
+          where app_id = a.id order by captured_on desc limit 1
+       ) s on true
       where ta.id = $1 and ta.workspace_id = $2 and ta.is_active`,
     [trackedAppId, ws],
   );
@@ -105,21 +111,26 @@ export async function generateLandscape(trackedAppId: string) {
   }
 
   const competitors = await q(
-    `select a.name, a.subtitle, a.rating_average, a.rating_count, a.version
-       from tracked_apps ta join apps a on a.id = ta.app_id
+    `select a.name, a.version, s.subtitle, s.rating_average, s.rating_count
+       from tracked_apps ta
+       join apps a on a.id = ta.app_id
+       left join lateral (
+         select subtitle, rating_average, rating_count from app_snapshots
+          where app_id = a.id order by captured_on desc limit 1
+       ) s on true
       where ta.workspace_id = $1 and ta.role = 'competitor' and ta.is_active limit 10`,
     [ws],
   );
   if (!competitors.length) return { error: "No competitors tracked — add one first." };
 
   const positions = await q(
-    `select term, country, bucket, their_rank, our_rank, popularity, difficulty, opportunity, competitor_name
-       from (select cp.*, k.term, k.country, ca.name as competitor_name
-               from competitive_positions cp
-               join keywords k on k.id = cp.keyword_id
-               left join apps ca on ca.id = cp.competitor_app_id
-              where cp.tracked_app_id = $1) t
-      order by opportunity desc nulls last limit 60`,
+    `select k.term, k.country, cp.bucket, cp.their_rank, cp.our_rank, cp.opportunity,
+            k.popularity, k.popularity_estimate, k.difficulty, ca.name as competitor_name
+       from competitive_positions cp
+       join keywords k on k.id = cp.keyword_id
+       left join apps ca on ca.id = cp.best_competitor_app_id
+      where cp.tracked_app_id = $1
+      order by cp.opportunity desc nulls last limit 60`,
     [trackedAppId],
   );
 

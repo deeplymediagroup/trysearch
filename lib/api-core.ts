@@ -66,7 +66,7 @@ async function resolveTrackedApp(ws: string, trackedAppId?: string) {
       )
     : await q1<any>(
         `select ta.id, ta.app_id, a.name, a.platform from tracked_apps ta join apps a on a.id = ta.app_id
-          where ta.workspace_id = $1 and ta.role = 'own' and ta.is_active order by ta.created_at limit 1`,
+          where ta.workspace_id = $1 and ta.role = 'own' and ta.is_active order by ta.added_at limit 1`,
         [ws],
       );
   if (!row) throw new ApiError("not_found", "No tracked app found for this workspace.", 404);
@@ -250,10 +250,16 @@ export const OPS: Record<string, Op> = {
     schema: { type: "object", properties: {} },
     async run() {
       const ws = await workspaceId();
+      // Ratings live on app_snapshots, not apps — take the most recent snapshot per app.
       return q(
         `select ta.id as tracked_app_id, ta.role, a.store_id, a.platform, a.name, a.developer_name,
-                a.version, a.rating_average, a.rating_count
-           from tracked_apps ta join apps a on a.id = ta.app_id
+                a.version, s.rating_average, s.rating_count, s.captured_on
+           from tracked_apps ta
+           join apps a on a.id = ta.app_id
+           left join lateral (
+             select rating_average, rating_count, captured_on from app_snapshots
+              where app_id = a.id order by captured_on desc limit 1
+           ) s on true
           where ta.workspace_id = $1 and ta.is_active order by ta.role, a.name`,
         [ws],
       );
@@ -270,7 +276,7 @@ export const OPS: Record<string, Op> = {
         `select tk.id as tracked_keyword_id, k.id as keyword_id, k.term, k.country,
                 k.popularity, k.popularity_estimate, k.difficulty,
                 tk.is_branded, tk.starred, tk.note, tk.source,
-                rc.rank, rc.last_seen_rank
+                rc.rank, rc.found, rc.last_known_rank, rc.delta_7d, rc.best_rank, rc.checked_at
            from tracked_keywords tk
            join keywords k on k.id = tk.keyword_id
            left join ranking_current rc on rc.keyword_id = k.id and rc.app_id = $2
@@ -306,11 +312,12 @@ export const OPS: Record<string, Op> = {
       const ws = await workspaceId();
       const app = await resolveTrackedApp(ws, tracked_app_id);
       return q(
-        `select k.term, k.country, cp.bucket, cp.their_rank, cp.our_rank, cp.popularity, cp.difficulty, cp.opportunity,
+        `select k.term, k.country, cp.bucket, cp.their_rank, cp.our_rank, cp.opportunity,
+                k.popularity, k.popularity_estimate, k.difficulty,
                 ca.name as competitor_name
            from competitive_positions cp
            join keywords k on k.id = cp.keyword_id
-           left join apps ca on ca.id = cp.competitor_app_id
+           left join apps ca on ca.id = cp.best_competitor_app_id
           where cp.tracked_app_id = $1 and ($2::text is null or cp.bucket = $2)
           order by cp.opportunity desc nulls last limit 100`,
         [app.id, bucket ?? null],
