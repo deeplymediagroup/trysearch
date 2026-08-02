@@ -11,6 +11,8 @@ import { getCompetitors, getCompetitivePositions, getStaleness, getAiAnalyses } 
 import { generateLandscape } from "@/app/actions/ai";
 import { aiEnabled } from "@/lib/ai";
 import { AiButton } from "@/components/AiButton";
+import { AddAppDialog } from "@/components/AddDialog";
+import { RemoveCompetitorButton } from "@/components/UntrackButtons";
 import * as fmt from "@/lib/format";
 
 export const metadata = { title: "Competitors — trysearch" };
@@ -58,9 +60,9 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
           </span>
         }
         actions={
-          <span className="text-[11px] text-[var(--fg-subtle)]">
-            Add one with <code className="num">seed-app.mjs --competitor &lt;id&gt;</code>
-          </span>
+          active.role === "own" ? (
+            <AddAppDialog role="competitor" competitorOf={active.tracked_app_id} label="+ Add competitor" />
+          ) : null
         }
       />
 
@@ -85,16 +87,18 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
         {tab === "competitors" && (
           <Panel caption="Your own app is pinned first. Install counts come from Play; Apple exposes none at any price.">
             {competitors.length === 0 ? (
-              <EmptyState title="No competitors tracked">
-                An empty landscape, not an error. Add one with{" "}
-                <code className="num">node scripts/seed-app.mjs --ios {active.store_id} --competitor &lt;their id&gt;</code>
+              <EmptyState
+                title="No competitors tracked"
+                action={active.role === "own" ? <AddAppDialog role="competitor" competitorOf={active.tracked_app_id} label="+ Add competitor" /> : null}
+              >
+                An empty landscape, not an error. Paste a competitor&apos;s store link, id or name.
               </EmptyState>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-[12.5px]">
                   <thead>
                     <tr className="border-b border-[var(--border)]">
-                      {["App", "Developer", "Version", "Rating", "Reviews", "Installs", "Est. Revenue"].map((h) => (
+                      {["App", "Developer", "Version", "Rating", "Reviews", "Installs", "Est. Revenue", ""].map((h) => (
                         <th key={h} scope="col" className="th px-3 py-2 text-left whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -114,6 +118,7 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
                       <td className="num px-3 py-2">{fmt.count(active.rating_count)}</td>
                       <td className="num px-3 py-2 text-[var(--fg-subtle)]">{fmt.EM_DASH}</td>
                       <td className="num px-3 py-2 text-[var(--fg-subtle)]">{fmt.EM_DASH}</td>
+                      <td />
                     </tr>
                     {competitors.map((c: any) => (
                       <tr key={c.app_id} className="border-b border-[var(--border)]">
@@ -134,6 +139,9 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
                         <td className="num px-3 py-2">
                           {c.revenue_display ?? fmt.EM_DASH}
                           {c.revenue_confidence && <span className="ml-1 text-[10px] text-[var(--fg-subtle)]">{c.revenue_confidence}</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <RemoveCompetitorButton trackedAppId={c.tracked_app_id} name={c.name} />
                         </td>
                       </tr>
                     ))}

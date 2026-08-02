@@ -9,6 +9,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { listTrackedApps, type TrackedApp } from "@/lib/queries";
 import { PlatformChip } from "./ui";
+import { AddAppDialog } from "./AddDialog";
 
 export const ACTIVE_APP_COOKIE = "trysearch_app";
 
@@ -112,9 +113,11 @@ export async function AppShell({ children, current }: { children: React.ReactNod
                   </div>
                 );
               })}
-              <Link href="/add-app" className="mt-1 block rounded-[5px] border-t border-[var(--border)] px-2 py-2 text-[12px] text-[var(--fg-muted)] hover:bg-[var(--bg-hover)]">
-                + Add app
-              </Link>
+              <div className="mt-1 border-t border-[var(--border)] px-2 py-2">
+                <AddAppDialog
+                  triggerClass="text-[12px] text-[var(--fg-muted)] hover:text-[var(--fg)]"
+                />
+              </div>
             </div>
           </details>
         </div>

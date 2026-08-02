@@ -14,6 +14,7 @@ import { DataTable, FilterBar, applyFilters, useFilters } from "./DataTable";
 import { RankPill, DeltaBadge, ScoreCell, PopularityCell, Chip, CountryFlag, AppIconStrip, Sparkline, EmptyState, EstimateLegend, SOURCE_LABELS } from "./ui";
 import * as fmt from "@/lib/format";
 import { quadrantFor, QUADRANT_LABELS } from "@/lib/scoring/scores.mjs";
+import { untrackKeywords } from "@/app/actions/keywords";
 import type { KeywordRow } from "@/lib/queries";
 
 const SOURCES = [
@@ -27,6 +28,8 @@ export function KeywordsTable({ rows, countries }: { rows: KeywordRow[]; countri
   const [filters, setFilters] = useFilters();
   const [view, setView] = useState<"table" | "matrix">("table");
   const [thresholds, setThresholds] = useState({ difficulty: 50, popularity: 25 });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [pending, setPending] = useState(false);
 
   const filtered = useMemo(() => {
     let out = applyFilters(rows, filters);
@@ -36,8 +39,47 @@ export function KeywordsTable({ rows, countries }: { rows: KeywordRow[]; countri
     return out;
   }, [rows, filters, thresholds]);
 
+  async function untrackSelected() {
+    if (!selected.size) return;
+    if (!window.confirm(`Stop tracking ${selected.size} keyword${selected.size === 1 ? "" : "s"}?\n\nMeasured ranks and scores are shared across the workspace and stay — re-adding a keyword picks its history back up.`)) return;
+    setPending(true);
+    try {
+      await untrackKeywords([...selected]);
+      setSelected(new Set());
+    } finally {
+      setPending(false);
+    }
+  }
+
   const columns = useMemo<ColumnDef<KeywordRow, any>[]>(
     () => [
+      {
+        id: "select",
+        enableSorting: false,
+        header: () => (
+          <input
+            type="checkbox"
+            aria-label="Select all"
+            checked={filtered.length > 0 && selected.size === filtered.length}
+            onChange={(e) => setSelected(e.target.checked ? new Set(filtered.map((r) => r.tracked_keyword_id)) : new Set())}
+          />
+        ),
+        cell: ({ row }) => (
+          <input
+            type="checkbox"
+            aria-label={`Select ${row.original.term}`}
+            checked={selected.has(row.original.tracked_keyword_id)}
+            onChange={() =>
+              setSelected((s) => {
+                const next = new Set(s);
+                if (next.has(row.original.tracked_keyword_id)) next.delete(row.original.tracked_keyword_id);
+                else next.add(row.original.tracked_keyword_id);
+                return next;
+              })
+            }
+          />
+        ),
+      },
       {
         id: "term",
         header: "Keyword",
@@ -152,7 +194,7 @@ export function KeywordsTable({ rows, countries }: { rows: KeywordRow[]; countri
         },
       },
     ],
-    [],
+    [filtered, selected],
   );
 
   const counts = useMemo(() => {
@@ -194,6 +236,23 @@ export function KeywordsTable({ rows, countries }: { rows: KeywordRow[]; countri
         showNumeric={view === "table"}
       />
 
+      {selected.size > 0 && (
+        <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-panel)] px-6 py-2 text-[12px]">
+          <span className="num text-[var(--fg-muted)]">{selected.size} selected</span>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={untrackSelected}
+            className="rounded-[var(--radius-chip)] border border-[var(--border)] px-2 py-1 text-[var(--fg-muted)] hover:border-[var(--down)] hover:text-[var(--down)] disabled:opacity-50"
+          >
+            {pending ? "Removing…" : "Untrack"}
+          </button>
+          <button type="button" onClick={() => setSelected(new Set())} className="text-[var(--fg-subtle)] hover:text-[var(--fg)]">
+            Clear
+          </button>
+        </div>
+      )}
+
       {view === "matrix" && (
         <MatrixView rows={filtered} allRows={rows} thresholds={thresholds} setThresholds={setThresholds} counts={counts} filters={filters} setFilters={setFilters} />
       )}
@@ -226,7 +285,7 @@ export function KeywordsTable({ rows, countries }: { rows: KeywordRow[]; countri
         }
         emptyState={
           <EmptyState title="No keywords tracked yet">
-            Add keywords with <code className="num">node scripts/seed-app.mjs --ios &lt;id&gt; --keywords &quot;…&quot;</code>, then run the crawler.
+            Use <strong>+ Add Keywords</strong> above — one term per line. Scores and ranks fill in on the next crawl.
           </EmptyState>
         }
       />

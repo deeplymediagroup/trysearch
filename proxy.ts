@@ -25,16 +25,16 @@ export function sessionToken(password: string): string {
 }
 
 /**
- * Public routes: the login flow, the cron trigger, diagnostics, and the marketing surface.
+ * Public routes: the login flow and the marketing surface.
  * /api/v1 and /mcp carry their own Bearer-token auth (lib/api-auth.ts), so the cookie gate
  * must not intercept them.
+ *
+ * Every entry here must be a route that EXISTS. An allowlisted path with no handler is a
+ * standing invitation to accidentally ship an unauthenticated one later.
  */
 const OPEN = [
   "/", // landing page — exact match only; every sub-path is still gated
   "/login",
-  "/api/auth",
-  "/api/cron",
-  "/api/diag",
   "/api/v1",
   "/mcp",
   "/aso-keyword-scores-explained",

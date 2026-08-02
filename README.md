@@ -21,6 +21,13 @@ Local password: whatever `CONSOLE_PASSWORD` is set to in `.env.local`.
 
 ### Track your first app
 
+Do it in the console: **+ Add app** in the sidebar. Paste a store link, a numeric App Store id,
+a bundle id or package name, or just the app's name, and pick it out of the results. Then
+**+ Add Keywords** on the Keywords page (one term per line, tick the storefronts) and
+**+ Add competitor** on the Competitors page. Untrack from the same screens.
+
+The command line does the same job if you prefer it, and is handy for scripted setup:
+
 ```bash
 node scripts/seed-app.mjs --ios 1487761500 --countries us,gb --keywords "motivation,discipline,morning routine"
 node scripts/seed-app.mjs --ios 1487761500 --competitor 876080126
@@ -28,6 +35,9 @@ npm run crawl -- --all
 ```
 
 Android works the same way with `--android com.example.app`.
+
+Nothing is measured until the crawler runs — a freshly added keyword shows em dashes for
+popularity, difficulty and rank until the next crawl fills them in.
 
 ---
 
@@ -41,7 +51,8 @@ Android works the same way with `--android com.example.app`.
 | `npm run crawl -- --all` | The full nightly crawl |
 | `npm run crawl -- --jobs rank_check,rollup` | Just some jobs |
 | `npm run crawl -- --limit 20 --dry` | Plan a run without fetching anything |
-| `npm test` | 124 unit tests over the scoring engine and formatters |
+| `npm test` | 131 unit tests over the scoring engine, formatters and app resolution |
+| `node scripts/create-api-key.mjs` | Mints a Bearer token for the REST API and the MCP server |
 | `node scripts/gate3.mjs` | Verifies the crawler wrote correct, correctly-signed data |
 | `node scripts/gate5.mjs` | Verifies the competitive buckets and the alert pipeline |
 | `node scripts/gate46.mjs` | Verifies the rendering rules and the listing tools |
@@ -54,14 +65,19 @@ Android works the same way with `--android com.example.app`.
 app/                    Next.js 16 App Router. Every page is a Server Component reading
                         Postgres directly — there is no /api layer for our own UI.
   actions/              Server Actions. What the buttons call.
-components/             AppShell, DataTable, the cells, the charts, the store mockups.
+  api/v1/ + mcp/        The two agent-facing surfaces, both over lib/api-core.ts.
+components/             AppShell, DataTable, the cells, the charts, the store mockups,
+                        the Add App / Add Keywords dialogs.
 lib/
   db.ts / db.mjs        One Postgres interface each for the app and the scripts.
+  api-core.ts           ONE operation registry serving both REST and MCP.
   format.ts             EVERY formatter. Nothing else in the codebase formats a number.
   queries.ts            Every read the dashboard performs.
+  ai.ts                 The single seam for every language-model call.
   scoring/*.mjs         Pure functions: popularity, difficulty, gap, opportunity,
                         visibility, buckets, the keyword packer, metadata safety.
-  stores/*.mjs          The Apple and Google Play clients, plus the throttled fetch layer.
+  stores/*.mjs          The Apple and Google Play clients, the throttled fetch layer,
+                        and resolve.mjs — "paste anything" app-reference parsing.
   reviews.ts            Local keyword classifier — review analysis with no API call.
   digest.mjs            The daily alert email.
 scripts/                migrate, crawl, smoke, seed-app, and the gate verifiers.
@@ -98,14 +114,23 @@ Run it from GitHub Actions (`.github/workflows/crawl.yml`, 02:00 UTC) or from yo
 
 ---
 
-## What is deliberately not built
+## The agent-facing surface
 
-Phase 7 of the spec is optional forever, and none of it ships here:
+Both are live and share one operation registry (`lib/api-core.ts`), so a change lands in both at once:
 
-- **The four AI features** (keyword relevance, competitive analyses, listing generation, AI review analysis). Everything else costs $0/month and the build plan says to keep it that way. Review analysis uses a local keyword classifier instead, and it works today.
-- **App Store Connect and Play Console integrations** — the clients exist in Brandon's other repos and need credentials. `/performance` and `/engagement` are not built.
+- **REST** — `/api/v1/...`, Bearer token from `scripts/create-api-key.mjs`.
+- **MCP** — `/mcp`, 17 tools: stateless store research, workspace reads, and a few writes.
+
+---
+
+## What is not built yet
+
+- **App Store Connect and Play Console integrations.** No credentials are read, so `/performance` and `/engagement` render permanently-empty states and the Listing Manager falls back to the public snapshot instead of the hidden Keywords field.
+- **The revenue pipeline.** `revenueEstimate()`/`revenueModel()` are implemented and unit-tested, but no crawl job calls them, so `/revenue` is empty.
+- **Keyword relevance scoring** — the one AI feature of the four still missing. The other three (competitive landscape, listing generation, AI review analysis) are built and gated behind an explicit button, off unless `ANTHROPIC_API_KEY` is set. `discovered_keywords.relevance` stays NULL until relevance scoring exists.
+- **Metrics for discovered keywords.** `rank_check` fetches SERPs for *tracked* keywords only — that queue is the entire crawl budget — so a discovered keyword has no rank, popularity or difficulty of its own. The "Auto-track ranked" switch is wired end to end but stays quiet until discoveries get a rank source.
 - **The screenshot studio** — a large, self-contained canvas editor, unrelated to everything else.
-- **The public REST API, the CLI, and the MCP server.** The MCP server is the highest-value of these and is the obvious next thing to build.
+- **The CLI.** REST + MCP cover the automation needs.
 
 ---
 
@@ -116,7 +141,8 @@ DATABASE_URL                 # Neon Postgres — required
 CONSOLE_PASSWORD             # the shared password; unset means the gate is open (local dev)
 CREDENTIALS_ENCRYPTION_KEY   # 32 bytes base64, for store_credentials at rest
 RESEND_API_KEY               # optional — the daily digest renders without it, just unsent
-ANTHROPIC_API_KEY            # optional — the four AI features, all currently unbuilt
+ANTHROPIC_API_KEY            # optional — the AI features; every one is behind a button, so
+                             #            nothing burns tokens on page load
 ```
 
 `.env*` and `*.p8` are gitignored from the first commit. This app is designed to hold App Store Connect private keys, which can read financial reports, so the password gate is server-side in `proxy.ts` — never a client-side check.

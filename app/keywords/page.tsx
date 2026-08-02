@@ -2,8 +2,9 @@ import { Suspense } from "react";
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { KeywordsTable } from "@/components/KeywordsTable";
 import { DiscoveredTable } from "@/components/DiscoveredTable";
-import { EmptyState, StalenessNote, Chip } from "@/components/ui";
+import { EmptyState, StalenessNote } from "@/components/ui";
 import { listKeywords, listDiscovered, getCountries, getStaleness } from "@/lib/queries";
+import { AddAppDialog, AddKeywordsDialog } from "@/components/AddDialog";
 import Link from "next/link";
 
 export const metadata = { title: "Keywords — trysearch" };
@@ -18,8 +19,8 @@ export default async function KeywordsPage({ searchParams }: { searchParams: Pro
       <AppShell current="/keywords">
         <PageHeader title="Keywords" />
         <div className="p-6">
-          <EmptyState title="No app tracked yet">
-            Track one with <code className="num">node scripts/seed-app.mjs --ios 1487761500 --countries us,gb --keywords &quot;…&quot;</code>
+          <EmptyState title="No app tracked yet" action={<AddAppDialog />}>
+            Paste a store link, an App Store id, a package name, or the app&apos;s name.
           </EmptyState>
         </div>
       </AppShell>
@@ -48,9 +49,7 @@ export default async function KeywordsPage({ searchParams }: { searchParams: Pro
             <Link href="/keywords?tab=discovered" className="h-7 rounded-[var(--radius-chip)] border border-[var(--border)] px-2.5 text-[12px] leading-7 text-[var(--fg-muted)] hover:text-[var(--fg)]">
               Discover keywords
             </Link>
-            <Link href="/add-keywords" className="h-7 rounded-[var(--radius-chip)] bg-[var(--accent)] px-2.5 text-[12px] font-medium leading-7 text-white">
-              + Add Keywords
-            </Link>
+            <AddKeywordsDialog trackedAppId={active.tracked_app_id} countries={countries} />
           </>
         }
       />
@@ -73,7 +72,12 @@ export default async function KeywordsPage({ searchParams }: { searchParams: Pro
 
       <Suspense fallback={<p className="p-6 text-[12px] text-[var(--fg-subtle)]">Loading keywords…</p>}>
         {tab === "discovered" ? (
-          <DiscoveredTable rows={discovered as any} countries={countries} />
+          <DiscoveredTable
+            rows={discovered as any}
+            countries={countries}
+            trackedAppId={active.tracked_app_id}
+            autoTrackRanked={active.auto_track_ranked}
+          />
         ) : (
           <KeywordsTable rows={rows} countries={countries} />
         )}

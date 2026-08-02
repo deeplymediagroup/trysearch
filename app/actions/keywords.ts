@@ -148,8 +148,14 @@ export async function setMatrixThresholds(trackedAppId: string, thresholds: { di
   return thresholds;
 }
 
-export async function setAutoTrackRanked(enabled: boolean) {
-  // ponytail: a single-workspace boolean. When this becomes multi-tenant it wants a column on
-  // tracked_apps; today the crawler reads the same default for everyone.
+/**
+ * Per-app switch read by the crawler's rollup job: promote discovered keywords that are
+ * actually RANKING into tracked_keywords. Ideas that don't rank are never auto-tracked, so
+ * this cannot quietly fill the table with noise.
+ */
+export async function setAutoTrackRanked(trackedAppId: string, enabled: boolean) {
+  const ws = await workspaceId();
+  await exec(`update tracked_apps set auto_track_ranked = $3 where id = $1 and workspace_id = $2`, [trackedAppId, ws, enabled]);
+  revalidatePath("/keywords");
   return { enabled };
 }

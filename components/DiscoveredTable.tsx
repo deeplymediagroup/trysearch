@@ -20,7 +20,17 @@ const SUB_TABS = [
   { id: "opportunities", label: "Opportunities" },
 ];
 
-export function DiscoveredTable({ rows, countries }: { rows: DiscoveredRow[]; countries: string[] }) {
+export function DiscoveredTable({
+  rows,
+  countries,
+  trackedAppId,
+  autoTrackRanked,
+}: {
+  rows: DiscoveredRow[];
+  countries: string[];
+  trackedAppId: string;
+  autoTrackRanked: boolean;
+}) {
   const [filters, setFilters] = useFilters();
   const [subTab, setSubTab] = useState("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -124,8 +134,16 @@ export function DiscoveredTable({ rows, countries }: { rows: DiscoveredRow[]; co
           })}
         </div>
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1.5 text-[11px] text-[var(--fg-muted)]" title="Any discovered keyword found to be ranking is promoted to Tracked automatically.">
-            <input type="checkbox" role="switch" onChange={(e) => setAutoTrackRanked(e.target.checked)} />
+          <label
+            className="flex items-center gap-1.5 text-[11px] text-[var(--fg-muted)]"
+            title="Any discovered keyword found to be RANKING is promoted to Tracked by the nightly rollup, best rank first, up to 50 a day. Ideas that don't rank are never auto-tracked. Nothing has been measured as ranking yet, so this stays quiet until discovered keywords get a rank of their own."
+          >
+            <input
+              type="checkbox"
+              role="switch"
+              defaultChecked={autoTrackRanked}
+              onChange={(e) => setAutoTrackRanked(trackedAppId, e.target.checked)}
+            />
             Auto-track ranked
           </label>
           <EstimateLegend />
@@ -153,7 +171,8 @@ export function DiscoveredTable({ rows, countries }: { rows: DiscoveredRow[]; co
         exportName="discovered-keywords"
         emptyState={
           <EmptyState title="Nothing discovered yet">
-            Run <code className="num">npm run crawl -- --jobs discovery</code> to pull candidates from your listing, autocomplete and competitors.
+            Discovery runs nightly, pulling candidates from your listing, autocomplete and competitors. To run it now:{" "}
+            <code className="num">npm run crawl -- --jobs discovery</code>
           </EmptyState>
         }
       />

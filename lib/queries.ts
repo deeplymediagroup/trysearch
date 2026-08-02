@@ -22,12 +22,13 @@ export type TrackedApp = {
   rating_average: number | null;
   rating_count: number | null;
   keyword_count: number;
+  auto_track_ranked: boolean;
 };
 
 /** Every app the workspace tracks, own apps first. Drives the app switcher. */
 export async function listTrackedApps(): Promise<TrackedApp[]> {
   return q<TrackedApp>(
-    `select ta.id as tracked_app_id, ta.app_id, ta.workspace_id, ta.role, ta.device,
+    `select ta.id as tracked_app_id, ta.app_id, ta.workspace_id, ta.role, ta.device, ta.auto_track_ranked,
             a.platform, a.store_id, a.name, a.developer_name, a.icon_url, a.version,
             s.rating_average, s.rating_count,
             (select count(*)::int from tracked_keywords tk where tk.tracked_app_id = ta.id) as keyword_count
@@ -178,6 +179,20 @@ export async function getLatestMetrics(appId: string) {
       where m.app_id = $1 order by m.metric_on desc limit 1`,
     [appId],
   );
+}
+
+/**
+ * Visibility as of ~7 days ago, for the Portfolio Δ7d column. Returns null when no such row
+ * exists — a missing comparison renders as an em dash, never as a delta of zero.
+ */
+export async function getVisibility7dAgo(appId: string): Promise<number | null> {
+  const row = await q1<{ visibility: string | null }>(
+    `select visibility from app_daily_metrics
+      where app_id = $1 and metric_on <= current_date - 7 and visibility is not null
+      order by metric_on desc limit 1`,
+    [appId],
+  );
+  return row?.visibility == null ? null : Number(row.visibility);
 }
 
 /** When did the crawl last touch this app? Drives the required staleness note. */

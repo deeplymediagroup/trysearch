@@ -156,6 +156,7 @@ async function finishJob(id, status, jobWarnings = [], error = null) {
 const trackedApps = await q(
   db,
   `select ta.id as tracked_app_id, ta.workspace_id, ta.role, ta.competitor_of, ta.device,
+          ta.auto_track_ranked,
           a.id as app_id, a.platform, a.store_id, a.name
      from tracked_apps ta
      join apps a on a.id = ta.app_id
@@ -1230,7 +1231,54 @@ if (JOBS.includes("rollup")) {
     }
   }
 
-  log(`   ${pairs.length} ranking_current row(s), ${positions} competitive position(s)${jobWarnings.length ? `, ${jobWarnings.length} warning(s)` : ""}`);
+  // --- auto-track ranked discoveries ----------------------------------------
+  // Runs here, not in `discovery`, because it needs the ranking_current rows written above.
+  // Only keywords we have MEASURED a rank for are promoted — an idea that doesn't rank is
+  // never auto-tracked, so this cannot quietly fill the table with noise. Capped per app per
+  // run, best rank first, so a switch flipped on a big backlog lands over several nights.
+  //
+  // ponytail: correct but currently inert. `rank_check` only fetches SERPs for TRACKED
+  // keywords (by design — that queue is the whole crawl budget), so no discovered keyword has
+  // a ranking_current row yet and this promotes nothing. It starts working the moment
+  // discoveries get a rank source — the cheap one is an on-demand SERP fetch that writes a
+  // rank for the discoveries someone actually opens. Do NOT "fix" this by adding discoveries
+  // to the rank_check queue: hundreds of discoveries against tens of tracked keywords is a
+  // multiple-x SERP-fetch bill and blows the Actions budget.
+  const AUTO_TRACK_CAP = 50;
+  let promoted = 0;
+  for (const app of trackedApps.filter((a) => a.role === "own" && a.auto_track_ranked)) {
+    try {
+      if (DRY) continue;
+      const ranked = await q(
+        db,
+        `select d.id, d.keyword_id, rc.rank from discovered_keywords d
+           join ranking_current rc on rc.keyword_id = d.keyword_id and rc.app_id = $2
+          where d.tracked_app_id = $1 and not d.dismissed and rc.rank is not null
+          order by rc.rank asc limit $3`,
+        [app.tracked_app_id, app.app_id, AUTO_TRACK_CAP],
+      );
+      for (const r of ranked) {
+        const res = await db.query(
+          `insert into tracked_keywords (workspace_id, tracked_app_id, keyword_id, source)
+           values ($1,$2,$3,'suggested')
+           on conflict (tracked_app_id, keyword_id) do nothing
+           returning id`,
+          [app.workspace_id, app.tracked_app_id, r.keyword_id],
+        );
+        // Dismiss either way: it is tracked now, so it is no longer a suggestion.
+        await db.query(`update discovered_keywords set dismissed = true where id = $1`, [r.id]);
+        if (res.rowCount) promoted++;
+      }
+    } catch (err) {
+      jobWarnings.push(`auto-track ${app.name}: ${err.message}`);
+    }
+  }
+
+  log(
+    `   ${pairs.length} ranking_current row(s), ${positions} competitive position(s)` +
+      `${promoted ? `, ${promoted} ranked discovery auto-tracked` : ""}` +
+      `${jobWarnings.length ? `, ${jobWarnings.length} warning(s)` : ""}`,
+  );
   await finishJob(jobId, jobWarnings.length ? "partial" : "done", jobWarnings);
   warnings.push(...jobWarnings);
 }
@@ -1306,7 +1354,10 @@ if (JOBS.includes("alerts")) {
           const res = await db.query(
             `insert into alerts (workspace_id, app_id, keyword_id, kind, message, platform, country, from_rank, to_rank, occurred_on)
              select $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
-             where not exists (select 1 from alerts where app_id = $2 and coalesce(keyword_id,0) = coalesce($3,0) and kind = $4 and occurred_on = $10)
+             -- $3 must be cast: keyword_id is bigint, and an untyped 0 makes Postgres infer
+             -- integer for the parameter, which fails with "integer versus bigint" (42P08)
+             -- the first time an alert actually fires. Latent until then.
+             where not exists (select 1 from alerts where app_id = $2 and coalesce(keyword_id, 0::bigint) = coalesce($3::bigint, 0::bigint) and kind = $4 and occurred_on = $10)
              returning id`,
             [
               ws.id, app.app_id, kw.keyword_id, ev.kind,

@@ -113,9 +113,15 @@ create table if not exists tracked_apps (
   competitor_of     uuid references tracked_apps(id) on delete cascade,
   device            text default 'iphone',
   is_active         boolean not null default true,
+  -- when true, the rollup job promotes discovered keywords that are actually RANKING
+  -- into tracked_keywords (capped per run). Ideas that don't rank are never auto-tracked.
+  auto_track_ranked boolean not null default false,
   added_at          timestamptz not null default now(),
   unique (workspace_id, app_id, competitor_of)
 );
+
+-- The table predates auto_track_ranked, so add it for installs migrated before it existed.
+alter table tracked_apps add column if not exists auto_track_ranked boolean not null default false;
 
 create index if not exists tracked_apps_ws on tracked_apps(workspace_id) where is_active;
 
