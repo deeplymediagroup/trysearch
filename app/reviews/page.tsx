@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { Panel, Chip, EmptyState, CountryFlag, StalenessNote } from "@/components/ui";
-import { getReviews, getStaleness } from "@/lib/queries";
+import { getReviews, getStaleness, getLatestReviewAnalysis } from "@/lib/queries";
 import { classifyReviews } from "@/lib/reviews";
+import { analyzeReviews } from "@/app/actions/ai";
+import { aiEnabled } from "@/lib/ai";
+import { AiButton } from "@/components/AiButton";
 import * as fmt from "@/lib/format";
 
 export const metadata = { title: "Reviews — trysearch" };
@@ -21,9 +24,10 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
     );
   }
 
-  const [reviews, staleness] = await Promise.all([
+  const [reviews, staleness, aiAnalysis] = await Promise.all([
     getReviews(active.app_id, { minRating: Number(min), maxRating: Number(max), sort, limit: 200 }),
     getStaleness(active.app_id),
+    getLatestReviewAnalysis(active.app_id),
   ]);
 
   const analysis = analyze ? classifyReviews(reviews as any) : null;
@@ -40,12 +44,17 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
           </span>
         }
         actions={
-          <Link
-            href={`/reviews?min=${min}&max=${max}&sort=${sort}&analyze=1`}
-            className="h-7 rounded-[var(--radius-chip)] border border-[var(--border)] px-2.5 text-[12px] leading-7 text-[var(--fg-muted)] hover:text-[var(--fg)]"
-          >
-            Analyze reviews
-          </Link>
+          <span className="flex items-center gap-2">
+            {aiEnabled() && (
+              <AiButton label="Analyze reviews (AI)" pendingLabel="Reading reviews…" action={analyzeReviews.bind(null, active.app_id)} />
+            )}
+            <Link
+              href={`/reviews?min=${min}&max=${max}&sort=${sort}&analyze=1`}
+              className="h-7 rounded-[var(--radius-chip)] border border-[var(--border)] px-2.5 text-[12px] leading-7 text-[var(--fg-muted)] hover:text-[var(--fg)]"
+            >
+              Quick classify
+            </Link>
+          </span>
         }
       />
 
@@ -84,6 +93,34 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
       </div>
 
       <div className="space-y-4 p-6">
+        {aiAnalysis && (
+          <div className="grid gap-3 lg:grid-cols-3">
+            {(["praise", "complaints", "feature_requests"] as const).map((group) => (
+              <Panel
+                key={group}
+                title={group === "feature_requests" ? "Feature requests" : group[0].toUpperCase() + group.slice(1)}
+                caption={`AI analysis of ${(aiAnalysis as any).review_count} reviews · ${fmt.relativeDate((aiAnalysis as any).created_at)}`}
+              >
+                {((aiAnalysis as any)[group] ?? []).length === 0 ? (
+                  <p className="text-[12px] text-[var(--fg-subtle)]">Nothing found.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {((aiAnalysis as any)[group] as { theme: string; count: number; quotes: string[] }[]).map((t) => (
+                      <li key={t.theme}>
+                        <p className="flex items-center justify-between text-[12px]">
+                          <span>{t.theme}</span>
+                          <span className="num text-[var(--fg-subtle)]">{t.count}</span>
+                        </p>
+                        {t.quotes[0] && <p className="mt-0.5 line-clamp-2 text-[11px] text-[var(--fg-muted)]">“{t.quotes[0]}”</p>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Panel>
+            ))}
+          </div>
+        )}
+
         {analysis && (
           <div className="grid gap-3 lg:grid-cols-3">
             {(["praise", "complaints", "feature_requests"] as const).map((group) => (

@@ -7,8 +7,12 @@
  */
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { Panel, Chip, EmptyState } from "@/components/ui";
-import { listKeywords, getLatestSnapshot, getCountries } from "@/lib/queries";
+import { listKeywords, getLatestSnapshot, getCountries, getLatestListingDraft } from "@/lib/queries";
 import { q } from "@/lib/db";
+import { generateListing } from "@/app/actions/ai";
+import { aiEnabled } from "@/lib/ai";
+import { AiButton } from "@/components/AiButton";
+import * as fmt from "@/lib/format";
 import { packKeywordField, isMetadataSafe, appNameBlocklist, coverageOf, FIELD_LIMITS } from "@/lib/scoring/listing.mjs";
 import { popularityEffective } from "@/lib/scoring/scores.mjs";
 import { graphemeLength } from "@/lib/scoring/text.mjs";
@@ -28,6 +32,7 @@ export default async function ListingHelperPage() {
   }
 
   const countries = await getCountries(active.tracked_app_id);
+  const draft = (await getLatestListingDraft(active.tracked_app_id)) as any;
   const [keywords, snapshot, knownApps] = await Promise.all([
     listKeywords(active.tracked_app_id, active.app_id),
     getLatestSnapshot(active.app_id, countries[0] ?? "us") as any,
@@ -166,12 +171,46 @@ export default async function ListingHelperPage() {
             </p>
           </Panel>
 
-          <Panel title="Generation" caption="Optional, and the only part of this page that would cost money.">
-            <p className="text-[12px] text-[var(--fg-muted)]">
-              Writing the App Name, Subtitle, Description and Promotional Text needs a language model. Everything above
-              is pure code and runs at zero marginal cost, so generation stays off until{" "}
-              <code className="num">ANTHROPIC_API_KEY</code> is set.
-            </p>
+          <Panel
+            title="Generation"
+            caption="The only part of this page that costs money. The keyword field in a draft still comes from the pure-code packer."
+          >
+            {aiEnabled() ? (
+              <div className="space-y-3">
+                <AiButton
+                  label="Generate listing"
+                  pendingLabel="Writing listing…"
+                  action={generateListing.bind(null, active.tracked_app_id, `${(countries[0] ?? "us").toUpperCase()} · English`, "")}
+                />
+                {draft && (
+                  <div className="space-y-2 rounded-[var(--radius-chip)] border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
+                    <p className="text-[10px] text-[var(--fg-subtle)]">
+                      Draft · {draft.locale} · {fmt.relativeDate(draft.created_at)} · {draft.model}
+                    </p>
+                    {([
+                      ["App Name", draft.app_name, 30],
+                      ["Subtitle", draft.subtitle, 30],
+                      ["Keywords", draft.keywords_field, 100],
+                      ["Promotional Text", draft.promotional_text, 170],
+                      ["Description", draft.description, 4000],
+                    ] as const).map(([label, value, limit]) => (
+                      <div key={label}>
+                        <p className="th flex items-baseline justify-between">
+                          <span>{label}</span>
+                          <span className="num text-[10px]">{(value ?? "").length}/{limit}</span>
+                        </p>
+                        <p className={`whitespace-pre-wrap text-[12px] ${label === "Description" ? "line-clamp-6" : ""}`}>{value || fmt.EM_DASH}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-[12px] text-[var(--fg-muted)]">
+                Writing the App Name, Subtitle, Description and Promotional Text needs a language model, so generation
+                stays off until <code className="num">ANTHROPIC_API_KEY</code> is set.
+              </p>
+            )}
           </Panel>
         </div>
       </div>

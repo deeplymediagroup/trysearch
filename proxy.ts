@@ -24,8 +24,23 @@ export function sessionToken(password: string): string {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
-/** Public routes: the login flow, the cron trigger, diagnostics, and the marketing surface. */
-const OPEN = ["/login", "/api/auth", "/api/cron", "/api/diag", "/aso-keyword-scores-explained"];
+/**
+ * Public routes: the login flow, the cron trigger, diagnostics, and the marketing surface.
+ * /api/v1 and /mcp carry their own Bearer-token auth (lib/api-auth.ts), so the cookie gate
+ * must not intercept them.
+ */
+const OPEN = [
+  "/", // landing page — exact match only; every sub-path is still gated
+  "/login",
+  "/api/auth",
+  "/api/cron",
+  "/api/diag",
+  "/api/v1",
+  "/mcp",
+  "/aso-keyword-scores-explained",
+  "/whats-new",
+  "/your-app",
+];
 
 export function proxy(request: NextRequest) {
   const password = process.env.CONSOLE_PASSWORD;

@@ -47,6 +47,14 @@ const NAV: NavGroup[] = [
       { label: "Revenue", href: "/revenue", badge: "ALPHA" },
     ],
   },
+  {
+    header: "Your App",
+    collapsible: true,
+    items: [
+      { label: "Performance", href: "/performance", badge: "NEW" },
+      { label: "Engagement", href: "/engagement", badge: "NEW" },
+    ],
+  },
 ];
 
 export async function getActiveApp(): Promise<{ apps: TrackedApp[]; active: TrackedApp | null }> {
@@ -149,6 +157,9 @@ export async function AppShell({ children, current }: { children: React.ReactNod
         </nav>
 
         <div className="border-t border-[var(--border)] p-2.5">
+          <Link href="/whats-new" className="mb-1.5 block text-[11px] text-[var(--fg-muted)] hover:text-[var(--fg)]">
+            What&apos;s New
+          </Link>
           <p className="text-[10px] leading-relaxed text-[var(--fg-subtle)]">
             All data from free public App Store and Google Play endpoints. No paid vendor.
           </p>

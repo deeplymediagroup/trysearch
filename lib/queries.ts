@@ -341,6 +341,27 @@ export async function getTargetKeywords(trackedAppId: string, locale: string) {
 }
 
 /** Countries this app is actually tracked in — a rank without a storefront is meaningless. */
+export async function getLatestReviewAnalysis(appId: string) {
+  return q1(
+    `select * from review_analyses where app_id = $1 order by created_at desc limit 1`,
+    [appId],
+  );
+}
+
+export async function getAiAnalyses(trackedAppId: string, limit = 10) {
+  return q(
+    `select * from ai_analyses where tracked_app_id = $1 order by created_at desc limit $2`,
+    [trackedAppId, limit],
+  );
+}
+
+export async function getLatestListingDraft(trackedAppId: string) {
+  return q1(
+    `select * from listing_drafts where tracked_app_id = $1 order by created_at desc limit 1`,
+    [trackedAppId],
+  );
+}
+
 export async function getCountries(trackedAppId: string): Promise<string[]> {
   const rows = await q<{ country: string }>(
     `select distinct k.country from tracked_keywords tk

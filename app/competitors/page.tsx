@@ -7,7 +7,10 @@
 import Link from "next/link";
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { Panel, RankPill, ScoreCell, PopularityCell, CountryFlag, Chip, EmptyState, StalenessNote, EstimateLegend } from "@/components/ui";
-import { getCompetitors, getCompetitivePositions, getStaleness } from "@/lib/queries";
+import { getCompetitors, getCompetitivePositions, getStaleness, getAiAnalyses } from "@/lib/queries";
+import { generateLandscape } from "@/app/actions/ai";
+import { aiEnabled } from "@/lib/ai";
+import { AiButton } from "@/components/AiButton";
 import * as fmt from "@/lib/format";
 
 export const metadata = { title: "Competitors — trysearch" };
@@ -33,10 +36,11 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
     );
   }
 
-  const [competitors, positions, staleness] = await Promise.all([
+  const [competitors, positions, staleness, analyses] = await Promise.all([
     getCompetitors(active.tracked_app_id),
     getCompetitivePositions(active.tracked_app_id),
     getStaleness(active.app_id),
+    getAiAnalyses(active.tracked_app_id),
   ]);
 
   const counts = Object.fromEntries(BUCKETS.map((b) => [b.id, positions.filter((p: any) => p.bucket === b.id).length]));
@@ -64,7 +68,7 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
         {[
           { id: "competitors", label: "Competitors", n: competitors.length },
           { id: "position", label: "Competitive position", n: positions.length },
-          { id: "ai", label: "AI analyses", n: 0 },
+          { id: "ai", label: "AI analyses", n: analyses.length },
         ].map((t) => (
           <Link
             key={t.id}
@@ -197,13 +201,50 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
         )}
 
         {tab === "ai" && (
-          <Panel caption="Optional feature.">
-            <EmptyState title="AI analyses are not enabled">
-              Every other number in this product costs $0/month. Competitive analyses need a language model, so they are
-              off until <code className="num">ANTHROPIC_API_KEY</code> is set. The four buckets above are computed from
-              public store data with no AI at all.
-            </EmptyState>
-          </Panel>
+          <div className="space-y-4">
+            {aiEnabled() ? (
+              <div className="flex items-center justify-between">
+                <p className="text-[12px] text-[var(--fg-muted)]">
+                  On-demand competitive report, grounded in your tracked keywords. At most one per app per 7 days.
+                </p>
+                <AiButton label="Generate analysis" pendingLabel="Analyzing landscape…" action={generateLandscape.bind(null, active.tracked_app_id)} />
+              </div>
+            ) : (
+              <Panel caption="Optional feature.">
+                <EmptyState title="AI analyses are not enabled">
+                  Competitive analyses need a language model, so they are off until{" "}
+                  <code className="num">ANTHROPIC_API_KEY</code> is set.
+                </EmptyState>
+              </Panel>
+            )}
+
+            {analyses.length === 0 && aiEnabled() && (
+              <Panel>
+                <EmptyState title="No analyses yet">Generate the first one — every report is stored and stays readable here.</EmptyState>
+              </Panel>
+            )}
+
+            {analyses.map((a: any) => (
+              <Panel key={a.id} title={`Analysis · ${fmt.shortDate(a.created_at)}`} caption={`Model: ${a.model}`}>
+                <p className="mb-3 text-[12.5px] leading-relaxed">{a.posture}</p>
+                <div className="grid gap-3 lg:grid-cols-3">
+                  {([["opportunities", "Opportunities"], ["threats", "Threats"], ["strengths", "Strengths"]] as const).map(([key, label]) => (
+                    <div key={key}>
+                      <p className="th mb-1.5">{label}</p>
+                      <ul className="space-y-2">
+                        {((a[key] ?? []) as { title: string; detail: string }[]).map((item) => (
+                          <li key={item.title} className="text-[12px]">
+                            <p className="font-medium">{item.title}</p>
+                            <p className="text-[var(--fg-muted)]">{item.detail}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+            ))}
+          </div>
         )}
       </div>
     </AppShell>
