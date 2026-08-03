@@ -36,27 +36,43 @@ export default async function PerformancePage() {
     [active.app_id],
   );
 
-  const sum = (key: string) => (rows.length ? rows.reduce((s, r) => s + Number(r[key] ?? 0), 0) : null);
+  // Missing ≠ zero: a row can exist for its impressions (from Analytics) while carrying no
+  // downloads/proceeds at all (from Sales Reports, which need a vendor number Analytics
+  // doesn't). Sum only when at least one row actually measured the column — otherwise the
+  // "0" would be a lie, not a measurement.
+  const sum = (key: string) => {
+    const measured = rows.filter((r) => r[key] != null);
+    return measured.length ? measured.reduce((s, r) => s + Number(r[key]), 0) : null;
+  };
+  const hasDownloads = rows.some((r) => r.downloads_first_time != null);
 
   return (
     <AppShell current="/performance">
       <PageHeader app={active} title="Performance" subtitle="App Store Connect · last 30 days" />
 
       <div className="space-y-4 p-6">
-        {rows.length === 0 ? (
-          <EmptyState title="Connect App Store Connect">
-            This page shows YOUR real downloads and proceeds — first-party data, not estimates. It needs an App Store
-            Connect API key (Users and Access → Integrations → App Store Connect API). Once the key is added the
-            nightly <code className="num">asc_sync</code> job fills this in; nothing renders as zero in the meantime
-            because unmeasured is not zero.
+        {!hasDownloads ? (
+          <EmptyState title="Downloads and proceeds need a vendor number">
+            Engagement data (impressions, page views) comes from App Store Connect Analytics, which is already
+            connected. Downloads and proceeds come from a separate report — Sales Reports — which needs{" "}
+            <code className="num">ASC_VENDOR_NUMBER</code> (Payments and Financial Reports in App Store Connect, not
+            the Analytics key). Nothing renders as zero in the meantime because unmeasured is not zero.
           </EmptyState>
         ) : (
           <>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <KpiTile label="Downloads" value={fmt.count(sum("downloads_first_time"))} subLabel="First-time, last 30 days" />
-              <KpiTile label="Re-downloads" value={fmt.count(sum("downloads_redownload"))} subLabel="Returning installs" />
-              <KpiTile label="In-app purchases" value={fmt.count(sum("iap_units"))} subLabel="Units sold" />
-              <KpiTile label="Proceeds" value={sum("proceeds_usd") == null ? null : `≈ $${Math.round(sum("proceeds_usd")!).toLocaleString()}`} subLabel="Approximate — static FX rates" />
+              <KpiTile
+                label="Re-downloads"
+                value={fmt.count(sum("downloads_redownload"))}
+                subLabel="Not split from first-time in this report"
+              />
+              <KpiTile label="In-app purchases" value={fmt.count(sum("iap_units"))} subLabel="Units — includes subscription events" />
+              <KpiTile
+                label="Proceeds"
+                value={sum("proceeds_usd") == null ? null : `≈ $${Math.round(sum("proceeds_usd")!).toLocaleString()}`}
+                subLabel="Sales report only — may exclude some subscription revenue"
+              />
             </div>
 
             <Panel title="Daily downloads" caption="First-time downloads per day.">
@@ -84,7 +100,7 @@ export default async function PerformancePage() {
                   {byCountry.map((c) => (
                     <tr key={c.country} className="border-b border-[var(--border)]">
                       <td className="num px-3 py-2 uppercase">{c.country}</td>
-                      <td className="num px-3 py-2">{fmt.count(Number(c.downloads))}</td>
+                      <td className="num px-3 py-2">{fmt.count(c.downloads == null ? null : Number(c.downloads))}</td>
                       <td className="num px-3 py-2">{c.proceeds == null ? fmt.EM_DASH : `≈ $${Math.round(Number(c.proceeds)).toLocaleString()}`}</td>
                     </tr>
                   ))}

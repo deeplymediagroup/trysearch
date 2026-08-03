@@ -79,7 +79,7 @@ const WATCHED = [
   ["icon_url", "icon"],
 ];
 
-const ALL_JOBS = ["app_snapshot", "revenue", "rank_check", "autocomplete", "metrics", "discovery", "reviews", "rollup", "alerts"];
+const ALL_JOBS = ["app_snapshot", "revenue", "asc_sync", "rank_check", "autocomplete", "metrics", "discovery", "reviews", "rollup", "alerts"];
 const JOBS = has("--all") || !arg("--jobs") ? ALL_JOBS : arg("--jobs").split(",").map((s) => s.trim()).filter(Boolean);
 const RUN_DATE = arg("--date") ?? new Date().toISOString().slice(0, 10);
 const LIMIT = Number(arg("--limit", "0")) || 0;
@@ -432,6 +432,105 @@ if (JOBS.includes("revenue")) {
   log(`   ${estimated} estimate(s), ${iapRows} new in-app price(s)${jobWarnings.length ? `, ${jobWarnings.length} warning(s)` : ""}`);
   await finishJob(jobId, jobWarnings.length ? "partial" : "done", jobWarnings);
   warnings.push(...jobWarnings);
+}
+
+// ===========================================================================
+// JOB 1c — asc_sync: App Store Connect first-party downloads + engagement
+// ===========================================================================
+/**
+ * Only runs for OWN iOS apps — Apple's Analytics/Sales APIs answer for apps this key has
+ * Admin/Sales-and-Reports/Finance access to, which is never a competitor's. Degrades to a
+ * warning (not a throw) when ASC_ISSUER_ID/ASC_KEY_ID/the private key are absent, same rule
+ * every other credentialed job follows.
+ */
+if (JOBS.includes("asc_sync")) {
+  const { ascConfigured, ascVendorConfigured, fetchEngagementRows, aggregateEngagement, fetchSalesReportTsv, parseSalesReport } =
+    await import("../lib/stores/asc.mjs");
+
+  if (!ascConfigured()) {
+    warnings.push("ASC_ISSUER_ID / ASC_KEY_ID / ASC private key not set — App Store Connect sync is skipped.");
+  } else {
+    const ownIos = trackedApps.filter((a) => a.role === "own" && a.platform === "ios");
+    const jobId = await startJob("asc_sync", { date: RUN_DATE }, ownIos.length);
+    const jobWarnings = [];
+    let done = 0;
+    let rowsWritten = 0;
+
+    log(`1c. asc_sync — ${ownIos.length} own iOS app(s)`);
+    if (!ascVendorConfigured()) jobWarnings.push("ASC_VENDOR_NUMBER not set — downloads/proceeds (Sales Reports) skipped; engagement still runs.");
+
+    for (const app of ownIos) {
+      try {
+        // Engagement funnel — impressions, page views, source breakdown.
+        const { rows, note } = await fetchEngagementRows(app.store_id);
+        if (note) jobWarnings.push(`asc engagement ${app.name}: ${note}`);
+        const perCountry = aggregateEngagement(rows, app.store_id);
+
+        // /performance and /engagement both read country = 'ALL' for the KPI strip and the
+        // daily chart, and per-country rows only for the "top countries" breakdown — so the
+        // worldwide total needs its own row per day, summed across every territory.
+        const allByDate = new Map();
+        for (const day of perCountry) {
+          if (!allByDate.has(day.date)) {
+            allByDate.set(day.date, { date: day.date, country: "ALL", impressions: 0, product_page_views: 0, impressions_search: 0, impressions_browse: 0, impressions_app_referrer: 0, impressions_web_referrer: 0 });
+          }
+          const t = allByDate.get(day.date);
+          t.impressions += day.impressions;
+          t.product_page_views += day.product_page_views;
+          t.impressions_search += day.impressions_search;
+          t.impressions_browse += day.impressions_browse;
+          t.impressions_app_referrer += day.impressions_app_referrer;
+          t.impressions_web_referrer += day.impressions_web_referrer;
+        }
+
+        for (const day of [...perCountry, ...allByDate.values()]) {
+          await db.query(
+            `insert into asc_daily_metrics (app_id, metric_on, country, impressions, product_page_views,
+                    impressions_search, impressions_browse, impressions_app_referrer, impressions_web_referrer)
+             values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+             on conflict (app_id, metric_on, country) do update set
+               impressions = excluded.impressions, product_page_views = excluded.product_page_views,
+               impressions_search = excluded.impressions_search, impressions_browse = excluded.impressions_browse,
+               impressions_app_referrer = excluded.impressions_app_referrer, impressions_web_referrer = excluded.impressions_web_referrer`,
+            [app.app_id, day.date, day.country, day.impressions, day.product_page_views,
+             day.impressions_search, day.impressions_browse, day.impressions_app_referrer, day.impressions_web_referrer],
+          );
+          rowsWritten++;
+        }
+
+        // Downloads + proceeds — one call per day, so only backfill a short recent window
+        // (Sales Reports lag 2 days, per 02 §5.5) rather than looping back to day one.
+        if (ascVendorConfigured()) {
+          for (let daysAgo = 2; daysAgo <= 9; daysAgo++) {
+            const d = new Date(`${RUN_DATE}T00:00:00Z`);
+            d.setUTCDate(d.getUTCDate() - daysAgo);
+            const iso = d.toISOString().slice(0, 10);
+            const tsv = await fetchSalesReportTsv(iso);
+            if (!tsv) continue;
+            const { worldwide, perCountry } = parseSalesReport(tsv, app.store_id);
+            for (const [country, totals] of [["ALL", worldwide], ...perCountry.entries()]) {
+              await db.query(
+                `insert into asc_daily_metrics (app_id, metric_on, country, downloads_first_time, downloads_redownload, iap_units, proceeds_usd)
+                 values ($1,$2,$3,$4,$5,$6,$7)
+                 on conflict (app_id, metric_on, country) do update set
+                   downloads_first_time = excluded.downloads_first_time, downloads_redownload = excluded.downloads_redownload,
+                   iap_units = excluded.iap_units, proceeds_usd = excluded.proceeds_usd`,
+                [app.app_id, iso, country, totals.downloads_first_time, totals.downloads_redownload, totals.iap_units, totals.proceeds_usd],
+              );
+              rowsWritten++;
+            }
+          }
+        }
+      } catch (err) {
+        jobWarnings.push(`asc_sync ${app.name}: ${err.message}`);
+      }
+      await bumpJob(jobId, ++done);
+    }
+
+    log(`   ${rowsWritten} row(s) written${jobWarnings.length ? `, ${jobWarnings.length} warning(s)` : ""}`);
+    await finishJob(jobId, jobWarnings.length ? "partial" : "done", jobWarnings);
+    warnings.push(...jobWarnings);
+  }
 }
 
 // ===========================================================================
