@@ -62,6 +62,12 @@ jobs:
           # App Manager key — only this role can read the hidden keywords field.
           ASC_MANAGER_KEY_ID: ${{ secrets.ASC_MANAGER_KEY_ID }}
           ASC_MANAGER_PRIVATE_KEY: ${{ secrets.ASC_MANAGER_PRIVATE_KEY }}
+          # Apple Search Ads — real search popularity via the SOV report.
+          ASA_CLIENT_ID: ${{ secrets.ASA_CLIENT_ID }}
+          ASA_TEAM_ID: ${{ secrets.ASA_TEAM_ID }}
+          ASA_KEY_ID: ${{ secrets.ASA_KEY_ID }}
+          ASA_ORG_ID: ${{ secrets.ASA_ORG_ID }}
+          ASA_PRIVATE_KEY: ${{ secrets.ASA_PRIVATE_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # Play Console real search terms: inline service-account JSON + the bucket name
           # copied from Play Console -> Download reports -> "Copy Cloud Storage URI".

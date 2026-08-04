@@ -879,7 +879,7 @@ if (JOBS.includes("autocomplete")) {
   const seeds = await buildSeedRoots();
   // Budget: a full 27-prefix × 16-root × 4-country sweep is ~29 hours of fetching, so the
   // prefix space is ROTATED — a slice each night, a full sweep across a week (07 §5).
-  const slice = rotationSlice(seeds, LIMIT || 40);
+  const slice = rotationSlice(seeds, LIMIT || 80);
 
   const jobId = await startJob("autocomplete", { date: RUN_DATE, roots: slice.length }, slice.length);
   const jobWarnings = [];
@@ -997,6 +997,10 @@ if (JOBS.includes("metrics")) {
   const jobWarnings = [];
   let done = 0;
 
+  // Apple Search Ads SOV cache: country -> Map(term -> 1..5 bucket), one report per country per run.
+  const { asaConfigured, searchPopularity, SAP_BUCKET_TO_POPULARITY } = await import("../lib/stores/asa.mjs");
+  const sapByCountry = new Map();
+
   log(`4. metrics — ${stale.length} keyword(s) needing a popularity refresh`);
 
   for (const kw of stale) {
@@ -1033,17 +1037,26 @@ if (JOBS.includes("metrics")) {
         hits: (depth.hits ?? 0) + (observed?.hits ?? 0),
       };
 
-      // Real Apple Search Popularity first, when ASA credentials exist and the seam yields a
-      // value; the store column is what flips popularity_source to 'store'.
-      if (kw.platform === "ios") {
+      // Real Apple Search Popularity from the Search Ads SOV report: ONE report per country
+      // per run (quota is 10/day), cached in sapByCountry, covering every term Apple links to
+      // the app. A real popularity value is what flips popularity_source to 'store'.
+      if (kw.platform === "ios" && asaConfigured()) {
         try {
-          const { asaConfigured, searchPopularity } = await import("../lib/stores/asa.mjs");
-          if (asaConfigured()) {
-            const sap = (await searchPopularity([kw.term], kw.country.toUpperCase())).get(kw.term);
-            if (sap != null) await db.query(`update keywords set popularity = $2 where id = $1`, [kw.keyword_id, sap]);
+          if (!sapByCountry.has(kw.country)) {
+            const ownIos = trackedApps.find((a) => a.role === "own" && a.platform === "ios");
+            sapByCountry.set(
+              kw.country,
+              ownIos ? await searchPopularity({ adamId: ownIos.store_id, country: kw.country }) : new Map(),
+            );
+            log(`   asa sov ${kw.country}: ${sapByCountry.get(kw.country).size} term(s) with real popularity`);
+          }
+          const bucket = sapByCountry.get(kw.country).get(kw.term.toLowerCase());
+          if (bucket != null) {
+            await db.query(`update keywords set popularity = $2 where id = $1`, [kw.keyword_id, SAP_BUCKET_TO_POPULARITY[bucket]]);
           }
         } catch (err) {
-          jobWarnings.push(`asa popularity "${kw.term}": ${err.message}`);
+          sapByCountry.set(kw.country, new Map()); // one failure must not re-fire per keyword
+          jobWarnings.push(`asa popularity ${kw.country}: ${err.message}`);
         }
       }
 
@@ -1153,7 +1166,7 @@ async function discoverFor(app, jobWarnings) {
     db,
     `select distinct term from autocomplete_hits
       where platform = $1 and country = any($2::text[]) and observed_on > $3::date - interval '14 days'
-      order by term limit 400`,
+      order by term limit 800`,
     [app.platform, countries, RUN_DATE],
   );
   addAll(acRows.map((r) => r.term), "autocomplete");
@@ -1246,6 +1259,7 @@ async function discoverFor(app, jobWarnings) {
         app: snap,
         competitors: compListings,
         existing: [...new Set([...tracked.map((t) => t.term), ...candidates.keys()])],
+        max: 120,
       });
       const verified = [];
       for (const term of ideas) {
@@ -1309,7 +1323,7 @@ async function discoverFor(app, jobWarnings) {
       `select dk.id, k.term, k.popularity, k.popularity_estimate, k.popularity_source, k.difficulty
          from discovered_keywords dk join keywords k on k.id = dk.keyword_id
         where dk.tracked_app_id = $1 and dk.relevance is null and dk.dismissed = false
-        order by dk.discovered_at desc limit 400`,
+        order by dk.discovered_at desc limit 600`,
       [app.tracked_app_id],
     );
     for (let i = 0; i < unscored.length; i += 100) {

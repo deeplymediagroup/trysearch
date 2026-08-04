@@ -272,24 +272,43 @@ export function PopularityCell({
   const text = fmt.popularity(keyword);
   const estimated = fmt.popularityIsEstimated(keyword);
   const fromStore = keyword?.popularity != null;
+  const effective = keyword?.popularity_estimate ?? keyword?.popularity ?? null;
+
+  if (effective == null) {
+    return (
+      <span className="num text-[12px] text-[var(--fg-subtle)]" title="Not measured — we don't know, which is different from zero.">
+        {fmt.EM_DASH}
+      </span>
+    );
+  }
+
+  // Bar + circled number, same grammar as the difficulty cell. Low demand reads red,
+  // everything else amber. Parentheses still mean "our estimate", per the house rule.
+  const tone = effective < 15 ? "var(--down)" : "var(--warn)";
+  const pct = Math.max(4, Math.min(100, effective));
+  const badge = estimated || !fromStore ? `(${effective})` : String(effective);
 
   return (
     <span
-      className="num inline-flex items-baseline gap-1 text-[12px]"
+      className="inline-flex items-center gap-2"
       title={
         estimated
           ? "The store floors low-volume keywords at 5. The number in parentheses is our own estimate from autocomplete position."
           : fromStore
-            ? "Reported by the store."
-            : "Not measured."
+            ? "Reported by Apple Search Ads."
+            : "Our estimate from autocomplete position — parentheses mean modelled, not store-reported."
       }
     >
-      {fromStore && keyword?.platform === "ios" && (
-        <span aria-label="store-reported" className="text-[10px] text-[var(--fg-subtle)]">
-&#63743;
-        </span>
-      )}
-      <span>{text}</span>
+      <span aria-hidden className="h-[5px] w-12 overflow-hidden rounded-full bg-[var(--bg-hover)]">
+        <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: tone }} />
+      </span>
+      <span
+        className="num inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[11.5px] font-medium tabular-nums"
+        style={{ color: tone, background: "color-mix(in srgb, currentColor 12%, transparent)" }}
+      >
+        {fromStore && keyword?.platform === "ios" && <span aria-label="store-reported" className="mr-0.5 text-[9px]">&#63743;</span>}
+        {badge}
+      </span>
     </span>
   );
 }
