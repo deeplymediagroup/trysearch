@@ -70,7 +70,7 @@ export function ResearchView({ projects, selected, rows, ownApps }: { projects: 
               type="button"
               disabled={pending || !name.trim()}
               onClick={() => run(async () => { const r = await createResearchProject(name); if (!r.error) setName(""); return r; })}
-              className="h-7 shrink-0 rounded-[var(--radius-chip)] bg-[var(--accent)] px-2 text-[12px] font-medium text-white disabled:opacity-50"
+              className="h-7 shrink-0 rounded-[var(--radius-chip)] bg-[var(--primary)] px-2 text-[12px] font-medium text-white disabled:opacity-50"
             >
               Create
             </button>
@@ -148,7 +148,7 @@ export function ResearchView({ projects, selected, rows, ownApps }: { projects: 
                         return r;
                       })
                     }
-                    className="h-7 rounded-[var(--radius-chip)] bg-[var(--accent)] px-2.5 text-[12px] font-medium text-white disabled:opacity-50"
+                    className="h-7 rounded-[var(--radius-chip)] bg-[var(--primary)] px-2.5 text-[12px] font-medium text-white disabled:opacity-50"
                   >
                     {pending ? "Adding…" : "Add"}
                   </button>
@@ -215,7 +215,7 @@ export function ResearchView({ projects, selected, rows, ownApps }: { projects: 
                           ),
                         )
                       }
-                      className="h-7 rounded-[var(--radius-chip)] bg-[var(--accent)] px-2.5 text-[12px] font-medium text-white disabled:opacity-50"
+                      className="h-7 rounded-[var(--radius-chip)] bg-[var(--primary)] px-2.5 text-[12px] font-medium text-white disabled:opacity-50"
                     >
                       {pending ? "Pushing…" : `Add to app (${picked.size})`}
                     </button>

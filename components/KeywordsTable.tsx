@@ -90,7 +90,7 @@ export function KeywordsTable({ rows, countries }: { rows: KeywordRow[]; countri
           const evidence = (r.difficulty_parts as any)?.beatable?.reason;
           return (
             <div className="flex min-w-0 items-center gap-1.5">
-              <span className="num truncate text-[var(--fg)]">{r.term}</span>
+              <span className="truncate text-[14px] font-medium text-[var(--fg)]">{r.term}</span>
               <Chip tone={r.is_branded ? "branded" : "neutral"}>{r.is_branded ? "Branded" : "Generic"}</Chip>
               {beatable && (
                 <Chip tone="beatable" title={evidence ?? "A top-3 slot looks winnable"}>

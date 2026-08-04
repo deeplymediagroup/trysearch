@@ -177,7 +177,7 @@ export function FilterBar({
           onChange={(e) => setText(e.target.value)}
           placeholder="Filter keywords…"
           aria-label="Filter keywords"
-          className={`h-7 w-52 rounded-[var(--radius-chip)] border bg-[var(--bg-elevated)] pl-2 pr-8 text-[12px] ${regexInvalid ? "border-[var(--down)]" : "border-[var(--border)]"}`}
+          className={`h-8 w-52 rounded-[var(--radius-chip)] border bg-[var(--bg-elevated)] pl-2 pr-8 text-[12px] ${regexInvalid ? "border-[var(--down)]" : "border-[var(--border)]"}`}
         />
         <button
           type="button"
@@ -212,7 +212,7 @@ export function FilterBar({
           onClick={() => setFilters({ starred: !filters.starred })}
           aria-label="Show starred keywords only"
           aria-pressed={filters.starred}
-          className={`h-7 rounded-[var(--radius-chip)] border px-2 text-[12px] ${filters.starred ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--fg-muted)]"}`}
+          className={`h-8 rounded-[var(--radius-chip)] border px-2 text-[12px] ${filters.starred ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--fg-muted)]"}`}
         >
           ★ Starred
         </button>
@@ -228,7 +228,7 @@ export function FilterBar({
 
       {countries.length > 1 && (
         <details className="relative">
-          <summary className="flex h-7 cursor-pointer list-none items-center rounded-[var(--radius-chip)] border border-[var(--border)] px-2 text-[12px] text-[var(--fg-muted)]">
+          <summary className="flex h-8 cursor-pointer list-none items-center rounded-[var(--radius-chip)] border border-[var(--border)] px-2 text-[12px] text-[var(--fg-muted)]">
             {filters.countries.length ? `${filters.countries.length} market(s)` : "All markets"}
           </summary>
           <div className="absolute left-0 top-full z-40 mt-1 w-40 rounded-[var(--radius-chip)] border border-[var(--border-strong)] bg-[var(--bg-elevated)] p-1.5 shadow-xl">
@@ -279,7 +279,7 @@ function Select({ value, onChange, children, label }: { value: string; onChange:
       value={value}
       onChange={(e) => onChange(e.target.value)}
       aria-label={label}
-      className="h-7 rounded-[var(--radius-chip)] border border-[var(--border)] bg-[var(--bg-elevated)] px-1.5 text-[12px] text-[var(--fg-muted)]"
+      className="h-8 rounded-[var(--radius-chip)] border border-[var(--border)] bg-[var(--bg-elevated)] px-1.5 text-[12px] text-[var(--fg-muted)]"
     >
       {children}
     </select>
@@ -288,7 +288,7 @@ function Select({ value, onChange, children, label }: { value: string; onChange:
 
 function NumberInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
-    <label className="flex h-7 items-center gap-1 rounded-[var(--radius-chip)] border border-[var(--border)] bg-[var(--bg-elevated)] px-1.5 text-[12px] text-[var(--fg-subtle)]">
+    <label className="flex h-8 items-center gap-1 rounded-[var(--radius-chip)] border border-[var(--border)] bg-[var(--bg-elevated)] px-1.5 text-[12px] text-[var(--fg-subtle)]">
       {label}
       <input
         type="number"
@@ -360,7 +360,7 @@ export function DataTable<T extends Record<string, any>>({
     <div>
       <div className="flex items-center justify-end gap-2 px-6 py-2">
         <details className="relative">
-          <summary className="flex h-7 cursor-pointer list-none items-center rounded-[var(--radius-chip)] border border-[var(--border)] px-2 text-[12px] text-[var(--fg-muted)]">
+          <summary className="flex h-8 cursor-pointer list-none items-center rounded-[var(--radius-chip)] border border-[var(--border)] px-2 text-[12px] text-[var(--fg-muted)]">
             Columns
           </summary>
           <div className="absolute right-0 top-full z-40 mt-1 w-48 rounded-[var(--radius-chip)] border border-[var(--border-strong)] bg-[var(--bg-elevated)] p-1.5 shadow-xl">
@@ -380,17 +380,17 @@ export function DataTable<T extends Record<string, any>>({
           </div>
         </details>
 
-        <button type="button" onClick={() => download("csv")} className="h-7 rounded-[var(--radius-chip)] border border-[var(--border)] px-2 text-[12px] text-[var(--fg-muted)] hover:text-[var(--fg)]">
+        <button type="button" onClick={() => download("csv")} className="h-8 rounded-[var(--radius-chip)] border border-[var(--border)] px-2 text-[12px] text-[var(--fg-muted)] hover:text-[var(--fg)]">
           Export CSV
         </button>
-        <button type="button" onClick={() => download("json")} className="h-7 rounded-[var(--radius-chip)] border border-[var(--border)] px-2 text-[12px] text-[var(--fg-muted)] hover:text-[var(--fg)]">
+        <button type="button" onClick={() => download("json")} className="h-8 rounded-[var(--radius-chip)] border border-[var(--border)] px-2 text-[12px] text-[var(--fg-muted)] hover:text-[var(--fg)]">
           JSON
         </button>
       </div>
 
       {/* Horizontal scroll lives INSIDE this container — the page body must never scroll sideways. */}
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[12.5px]">
+        <table className="w-full border-collapse text-[13px]">
           <thead className="sticky top-0 z-10 bg-[var(--bg)]">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id} className="border-b border-[var(--border)]">
@@ -423,9 +423,9 @@ export function DataTable<T extends Record<string, any>>({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id} className="border-b border-[var(--border)] hover:bg-[var(--bg-panel)]">
+              <tr key={row.id} className="border-b border-[var(--border)] hover:bg-[var(--sidebar)]">
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-3 py-2 align-middle" style={{ height: 44 }}>
+                  <td key={cell.id} className="px-3 py-2 align-middle" style={{ height: 52 }}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}

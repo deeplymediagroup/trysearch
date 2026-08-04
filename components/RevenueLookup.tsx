@@ -52,7 +52,7 @@ export function RevenueLookup() {
           type="button"
           onClick={go}
           disabled={pending || !input.trim()}
-          className="h-8 rounded-[var(--radius-chip)] bg-[var(--accent)] px-3 text-[12px] font-medium text-white disabled:opacity-50"
+          className="h-8 rounded-[var(--radius-chip)] bg-[var(--primary)] px-3 text-[12px] font-medium text-white disabled:opacity-50"
         >
           {pending ? "Estimating…" : "Estimate"}
         </button>

@@ -81,7 +81,7 @@ export function DiscoveredTable({
           <input type="checkbox" aria-label={`Select ${row.original.term}`} checked={selected.has(row.original.id)} onChange={() => toggle(row.original.id)} />
         ),
       },
-      { id: "term", header: "Keyword", accessorKey: "term", cell: ({ getValue }) => <span className="num">{String(getValue())}</span> },
+      { id: "term", header: "Keyword", accessorKey: "term", cell: ({ getValue }) => <span className="text-[14px] font-medium">{String(getValue())}</span> },
       { id: "source", header: "Source", accessorKey: "source", cell: ({ getValue }) => <Chip>{SOURCE_LABELS[getValue() as string] ?? String(getValue())}</Chip> },
       { id: "market", header: "Market", accessorKey: "country", cell: ({ getValue }) => <CountryFlag country={getValue() as string} /> },
       {
@@ -158,7 +158,7 @@ export function DiscoveredTable({
       {selected.size > 0 && (
         <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-panel)] px-6 py-2 text-[12px]">
           <span className="num text-[var(--fg-muted)]">{selected.size} selected</span>
-          <button type="button" disabled={pending} onClick={() => bulk("track")} className="rounded-[var(--radius-chip)] bg-[var(--accent)] px-2 py-1 text-white disabled:opacity-50">
+          <button type="button" disabled={pending} onClick={() => bulk("track")} className="rounded-[var(--radius-chip)] bg-[var(--primary)] px-2 py-1 text-white disabled:opacity-50">
             Track
           </button>
           <button type="button" disabled={pending} onClick={() => bulk("dismiss")} className="rounded-[var(--radius-chip)] border border-[var(--border)] px-2 py-1 text-[var(--fg-muted)] disabled:opacity-50">

@@ -16,7 +16,7 @@ import { addKeywords } from "@/app/actions/keywords";
 const COUNTRIES: string[] = [...ENGLISH_FIRST, ...Object.keys(STOREFRONTS).filter((c) => !ENGLISH_FIRST.includes(c))];
 
 const BTN_PRIMARY =
-  "h-7 rounded-[var(--radius-chip)] bg-[var(--accent)] px-2.5 text-[12px] font-medium leading-7 text-white disabled:opacity-50";
+  "h-7 rounded-[var(--radius-chip)] bg-[var(--primary)] px-2.5 text-[12px] font-medium leading-7 text-white disabled:opacity-50";
 const BTN_QUIET =
   "h-7 rounded-[var(--radius-chip)] border border-[var(--border)] px-2.5 text-[12px] leading-7 text-[var(--fg-muted)] hover:text-[var(--fg)] disabled:opacity-50";
 const FIELD =

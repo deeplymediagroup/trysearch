@@ -1,48 +1,51 @@
 @import "tailwindcss";
 
 /*
- * Design tokens — 06-FRONTEND-SPEC.md §2.
- * A dark, dense, data-first console: near-black canvas, hairline borders instead of
- * shadows, small uppercase table headers, ONE accent colour reserved for data.
+ * Design tokens — light theme, 2026-08.
+ * A light, airy, data-first console: white canvas, #fafafa sidebar, hairline borders,
+ * mono uppercase table headers, one coral-red brand accent reserved for emphasis.
  */
 :root {
-  /* canvas — near-black, not pure black; panels lift by 2-3% lightness */
-  --bg: #0a0a0b;
-  --bg-panel: #121214;
-  --bg-elevated: #18181b;
-  --bg-hover: #1f1f23;
+  /* canvas — white; cards are white with hairline borders, sidebar is one step warmer */
+  --bg: #ffffff;
+  --bg-panel: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-hover: #f5f5f5;
+  --sidebar: #fafafa;
 
-  /* hairline borders do the structural work; almost no shadows */
-  --border: #26262b;
-  --border-strong: #35353c;
+  /* hairline borders do the structural work; shadows only on floating layers */
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
 
   /* text */
-  --fg: #f4f4f5;
-  --fg-muted: #a1a1aa;
-  --fg-subtle: #71717a;
+  --fg: #0a0a0a;
+  --fg-muted: #525252;
+  --fg-subtle: #737373;
 
-  /* one accent, reserved for DATA (chart lines, active states) */
-  --accent: #3b82f6;
-  --accent-soft: rgba(59, 130, 246, 0.15);
+  /* brand accent (CTAs, active data, badges) + black primary buttons */
+  --accent: #f04c5a;
+  --accent-soft: rgba(240, 76, 90, 0.1);
+  --primary: #171717;
+  --primary-fg: #fafafa;
 
-  /* semantic: deltas and rank brackets */
-  --up: #22c55e;
-  --down: #ef4444;
-  --warn: #f59e0b;
-  --neutral: #71717a; /* zero change — deliberately grey, not green */
+  /* semantic: deltas and rank brackets — darker shades for contrast on white */
+  --up: #16a34a;
+  --down: #dc2626;
+  --warn: #d97706;
+  --neutral: #737373; /* zero change — deliberately grey, not green */
 
   /* rank brackets, used consistently in the stacked chart AND rank pills */
-  --rank-top3: #22c55e;
-  --rank-4-10: #84cc16;
-  --rank-11-30: #eab308;
-  --rank-31-100: #f97316;
+  --rank-top3: #16a34a;
+  --rank-4-10: #65a30d;
+  --rank-11-30: #ca8a04;
+  --rank-31-100: #ea580c;
   --rank-100plus: #dc2626;
 
   --radius: 10px; /* nothing square */
-  --radius-chip: 6px;
+  --radius-chip: 8px;
   --radius-pill: 999px;
 
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-ui: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   --font-num: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
@@ -88,10 +91,11 @@ body {
 }
 
 /*
- * Table headers: ~11px, uppercase, wide tracking, subtle. The spec calls this single
+ * Table headers: ~11px, uppercase mono, wide tracking, subtle. The spec calls this single
  * detail "most of what makes the tool look professional".
  */
 .th {
+  font-family: var(--font-num);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -103,6 +107,17 @@ body {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+/* Primary action button — black pill, the "Add Keywords" style. */
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-radius: var(--radius);
+  font-weight: 600;
+}
+.btn-primary:hover {
+  background: #2e2e2e;
 }
 
 /* Visible focus rings — accessibility is not optional (§5). */

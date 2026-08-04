@@ -270,7 +270,7 @@ function KeywordReveal({ platform, country }: { platform: "ios" | "android"; cou
             type="button"
             disabled={pending || !term.trim()}
             onClick={() => start(async () => setResult(await keywordRevealProbe(term, platform, country)))}
-            className="h-8 rounded-[var(--radius-chip)] bg-[var(--accent)] px-3 text-[12px] font-medium text-white disabled:opacity-50"
+            className="h-8 rounded-[var(--radius-chip)] bg-[var(--primary)] px-3 text-[12px] font-medium text-white disabled:opacity-50"
           >
             {pending ? "Probing…" : "Reveal"}
           </button>

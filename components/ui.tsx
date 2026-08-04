@@ -9,7 +9,7 @@
  * value also carries a sign or a word.
  */
 import * as fmt from "@/lib/format";
-import { flagEmoji, COUNTRY_NAMES } from "@/lib/stores/storefronts.mjs";
+import { COUNTRY_NAMES } from "@/lib/stores/storefronts.mjs";
 
 // ---------------------------------------------------------------------------
 // Panels and headings
@@ -187,11 +187,17 @@ export function ScoreCell({
 
   return (
     <span className="group/score relative inline-flex items-center gap-2">
-      <span className="num text-[12px] tabular-nums" style={tone ? { color: tone } : undefined}>
-        {fmt.score(value)}
-      </span>
-      <span aria-hidden className="h-1 w-10 overflow-hidden rounded-full bg-[var(--bg-hover)]">
+      <span aria-hidden className="h-[5px] w-12 overflow-hidden rounded-full bg-[var(--bg-hover)]">
         <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: tone ?? "var(--accent)" }} />
+      </span>
+      <span
+        className="num inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[11.5px] font-medium tabular-nums"
+        style={{
+          color: tone ?? "var(--fg)",
+          background: tone ? "color-mix(in srgb, currentColor 12%, transparent)" : "var(--bg-hover)",
+        }}
+      >
+        {fmt.score(value)}
       </span>
 
       {rows.length > 0 && (
@@ -309,7 +315,7 @@ export function Chip({
   return (
     <span
       title={title}
-      className="inline-flex items-center rounded-[var(--radius-chip)] px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap"
+      className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap"
       style={{ color: t.fg, background: t.bg }}
     >
       {children}
@@ -328,12 +334,13 @@ export const SOURCE_LABELS: Record<string, string> = {
   competitor_ai: "Competitor AI",
 };
 
-/** CountryFlag — never show a rank without one. Emoji, so zero image requests. */
+/** CountryFlag — never show a rank without one. Flag images (Windows has no flag emoji). */
 export function CountryFlag({ country, showCode = true }: { country: string; showCode?: boolean }) {
   const cc = String(country ?? "").toLowerCase();
   return (
-    <span className="inline-flex items-center gap-1 whitespace-nowrap" title={COUNTRY_NAMES[cc] ?? cc.toUpperCase()}>
-      <span aria-hidden>{flagEmoji(cc)}</span>
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap" title={COUNTRY_NAMES[cc] ?? cc.toUpperCase()}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={`https://flagcdn.com/w20/${cc}.png`} alt="" width={16} height={12} loading="lazy" className="h-3 w-4 rounded-[2px] object-cover" />
       {showCode && <span className="num text-[11px] text-[var(--fg-muted)]">{cc.toUpperCase()}</span>}
     </span>
   );

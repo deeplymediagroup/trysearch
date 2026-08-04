@@ -56,20 +56,23 @@ export default async function KeywordsPage({ searchParams }: { searchParams: Pro
         }
       />
 
-      <nav className="flex gap-1 border-b border-[var(--border)] px-6" aria-label="Keyword tabs">
-        {[
-          { id: "tracked", label: "Tracked", n: rows.length },
-          { id: "discovered", label: "Discovered", n: discovered.length },
-        ].map((t) => (
-          <Link
-            key={t.id}
-            href={`/keywords?tab=${t.id}`}
-            aria-current={tab === t.id ? "page" : undefined}
-            className={`-mb-px border-b-2 px-3 py-2 text-[12.5px] ${tab === t.id ? "border-[var(--accent)] text-[var(--fg)]" : "border-transparent text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
-          >
-            {t.label} <span className="num text-[var(--fg-subtle)]">{t.n}</span>
-          </Link>
-        ))}
+      <nav className="px-6 pb-1 pt-2" aria-label="Keyword tabs">
+        <div className="inline-flex items-center gap-1 rounded-[10px] bg-[var(--bg-hover)] p-1">
+          {[
+            { id: "tracked", label: "Tracked", n: rows.length },
+            { id: "discovered", label: "Discovered", n: discovered.length },
+          ].map((t) => (
+            <Link
+              key={t.id}
+              href={`/keywords?tab=${t.id}`}
+              aria-current={tab === t.id ? "page" : undefined}
+              className={`flex items-center gap-2 rounded-[8px] px-3.5 py-1.5 text-[13px] font-medium ${tab === t.id ? "border border-[var(--border)] bg-[var(--bg)] text-[var(--fg)] shadow-sm" : "text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
+            >
+              {t.label}
+              <span className={`num rounded-full px-1.5 text-[11px] ${tab === t.id ? "bg-[var(--bg-hover)] text-[var(--fg-muted)]" : "text-[var(--fg-subtle)]"}`}>{t.n}</span>
+            </Link>
+          ))}
+        </div>
       </nav>
 
       {/*
