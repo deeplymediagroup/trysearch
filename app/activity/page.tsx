@@ -70,22 +70,26 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
             an empty feed here means nothing moved, not that detection is broken.
           </EmptyState>
         ) : view === "timeline" ? (
-          <Panel caption="Newest first.">
-            <ol className="relative ml-2 border-l border-[var(--border)] pl-4">
-              {events.map((e: any) => (
-                <li key={e.id} className="relative pb-4">
-                  <span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-[var(--accent)]" />
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="num text-[12px]">{e.app_name}</span>
-                    <PlatformChip platform={e.platform} />
-                    {e.role === "competitor" && <span className="text-[11px] text-[var(--fg-subtle)]">· Competitor</span>}
-                    <Chip>{KIND_LABELS[e.kind] ?? e.kind}</Chip>
-                    <span className="text-[11px] text-[var(--fg-subtle)]">{fmt.shortDate(e.occurred_on)}</span>
-                  </div>
-                  <Details event={e} />
-                </li>
-              ))}
-            </ol>
+          <Panel caption="Newest first, grouped by day.">
+            {groupByDay(events).map(([day, dayEvents]) => (
+              <section key={day} className="mb-4 last:mb-0">
+                <h3 className="th mb-2">{fmt.shortDate(day)}</h3>
+                <ol className="relative ml-2 border-l border-[var(--border)] pl-4">
+                  {dayEvents.map((e: any) => (
+                    <li key={e.id} className="relative pb-4 last:pb-1">
+                      <span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-[var(--accent)]" />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="num text-[12px]">{e.app_name}</span>
+                        <PlatformChip platform={e.platform} />
+                        {e.role === "competitor" && <span className="text-[11px] text-[var(--fg-subtle)]">· Competitor</span>}
+                        <Chip>{KIND_LABELS[e.kind] ?? e.kind}</Chip>
+                      </div>
+                      <Details event={e} />
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            ))}
           </Panel>
         ) : (
           <Panel caption="One row per detected change.">
@@ -149,3 +153,14 @@ function Details({ event }: { event: any }) {
 }
 
 const truncate = (s: string | null) => (s == null ? "—" : s.length > 140 ? `${s.slice(0, 137)}…` : s);
+
+/** Newest-first events → [dayKey, events[]] pairs, preserving order within a day. */
+function groupByDay(events: any[]): [string, any[]][] {
+  const out: [string, any[]][] = [];
+  for (const e of events) {
+    const day = String(e.occurred_on).slice(0, 10);
+    if (out.length && out[out.length - 1][0] === day) out[out.length - 1][1].push(e);
+    else out.push([day, [e]]);
+  }
+  return out;
+}

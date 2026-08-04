@@ -24,6 +24,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
+import { useState } from "react";
 import { shortDate } from "@/lib/format";
 
 const AXIS = { stroke: "var(--fg-subtle)", fontSize: 10 };
@@ -107,6 +108,56 @@ const BRACKETS = [
   { key: "bracket_100_plus", label: "100+", colour: "var(--rank-100plus)" },
 ];
 
+/**
+ * RankDistributionPanel — the stacked distribution with two switches: count vs
+ * popularity-weighted stacks, and everything vs starred targets only.
+ * (Starred + weighted falls back to starred counts: weighting a starred subset would need
+ * a fourth series family for marginal insight.)
+ */
+export function RankDistributionPanel({ data }: { data: Record<string, unknown>[] }) {
+  const [weighted, setWeighted] = useState(false);
+  const [starredOnly, setStarredOnly] = useState(false);
+  const prefix = starredOnly ? "s" : weighted ? "w" : "c";
+  const rows = data.map((d) => ({
+    metric_on: d.metric_on,
+    top3_count: Number(d[`${prefix}1`] ?? 0),
+    top10_count: Number(d[`${prefix}1`] ?? 0) + Number(d[`${prefix}2`] ?? 0),
+    bracket_11_30: Number(d[`${prefix}3`] ?? 0),
+    bracket_31_100: Number(d[`${prefix}4`] ?? 0),
+    bracket_100_plus: Number(d[`${prefix}5`] ?? 0),
+  }));
+  return (
+    <>
+      <div className="mb-2 flex items-center gap-1.5">
+        {([
+          ["Keywords", false],
+          ["Popularity-weighted", true],
+        ] as const).map(([label, w]) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => setWeighted(w)}
+            aria-pressed={weighted === w}
+            className={`rounded-[6px] px-2 py-0.5 text-[11px] ${weighted === w ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
+          >
+            {label}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => setStarredOnly((s) => !s)}
+          aria-pressed={starredOnly}
+          className={`ml-2 rounded-[6px] px-2 py-0.5 text-[11px] ${starredOnly ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
+        >
+          ★ Starred only
+        </button>
+      </div>
+      <BracketAreaChart data={rows} />
+      {weighted && !starredOnly && <Caption>Stacks sum the popularity of the keywords in each bracket instead of counting them.</Caption>}
+    </>
+  );
+}
+
 /** Five stacked series in the SAME bracket colours the rank pills use. */
 export function BracketAreaChart({ data }: { data: any[] }) {
   const rows = data.map((d) => ({
@@ -145,7 +196,7 @@ export function RankHistoryChart({
   series,
   annotations = [],
 }: {
-  series: { term: string; country: string; points: { date: string; rank: number | null }[] }[];
+  series: { term: string; country: string; points: { date: string; rank: number | null }[]; dashed?: boolean }[];
   annotations?: { occurred_on: string; label: string }[];
 }) {
   if (!series.length) {
@@ -187,8 +238,10 @@ export function RankHistoryChart({
               type="monotone"
               dataKey={`${s.term} (${s.country.toUpperCase()})`}
               stroke={COLOURS[i % COLOURS.length]}
-              strokeWidth={1.6}
-              dot={{ r: 2 }}
+              strokeWidth={s.dashed ? 1.2 : 1.6}
+              strokeDasharray={s.dashed ? "4 4" : undefined}
+              strokeOpacity={s.dashed ? 0.55 : 1}
+              dot={s.dashed ? false : { r: 2 }}
               connectNulls={false}
             />
           ))}
@@ -198,8 +251,9 @@ export function RankHistoryChart({
       {pins.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-3">
           {pins.map((p) => (
-            <span key={p.n} className="text-[11px] text-[var(--fg-subtle)]">
-              <span className="num">{p.n}</span> · {shortDate(p.occurred_on)} · {p.label}
+            <span key={p.n} className={`text-[11px] ${(p as { auto?: boolean }).auto ? "italic text-[var(--fg-subtle)]" : "text-[var(--fg-muted)]"}`}>
+              <span className="num not-italic">{p.n}</span> · {shortDate(p.occurred_on)} · {p.label}
+              {(p as { auto?: boolean }).auto && <span className="ml-1 rounded-full bg-[var(--bg-hover)] px-1.5 text-[9px] not-italic">detected</span>}
             </span>
           ))}
         </div>

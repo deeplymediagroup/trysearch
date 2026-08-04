@@ -1,9 +1,10 @@
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { KeywordsTable } from "@/components/KeywordsTable";
 import { DiscoveredTable } from "@/components/DiscoveredTable";
+import { SideBySideTable } from "@/components/SideBySideTable";
 import { EmptyState, StalenessNote, Panel, Chip } from "@/components/ui";
 import { AiButton } from "@/components/AiButton";
-import { listKeywords, listDiscovered, getCountries, getStaleness, getPlaySearchTerms } from "@/lib/queries";
+import { listKeywords, listDiscovered, getCountries, getStaleness, getPlaySearchTerms, getLatestDiscoveryRun } from "@/lib/queries";
 import { trackTermsFromAnalysis } from "@/app/actions/keywords";
 import { AddAppDialog, AddKeywordsDialog } from "@/components/AddDialog";
 import Link from "next/link";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic"; // crawled data changes nightly; never s
 
 export default async function KeywordsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab = "tracked" } = await searchParams;
-  const { active } = await getActiveApp();
+  const { apps, active } = await getActiveApp();
 
   if (!active) {
     return (
@@ -28,13 +29,18 @@ export default async function KeywordsPage({ searchParams }: { searchParams: Pro
     );
   }
 
-  const [rows, discovered, countries, staleness, playTerms] = await Promise.all([
+  const [rows, discovered, countries, staleness, playTerms, latestRun] = await Promise.all([
     listKeywords(active.tracked_app_id, active.app_id),
     listDiscovered(active.tracked_app_id, active.app_id),
     getCountries(active.tracked_app_id),
     getStaleness(active.app_id),
     active.platform === "android" ? getPlaySearchTerms(active.store_id) : Promise.resolve([]),
+    getLatestDiscoveryRun(active.tracked_app_id),
   ]);
+
+  // "Both stores" side-by-side only exists when you track your app on iOS AND Android.
+  const otherStore = apps.find((a) => a.role === "own" && a.platform !== active.platform);
+  const otherRows = tab === "both" && otherStore ? await listKeywords(otherStore.tracked_app_id, otherStore.app_id) : [];
 
   return (
     <AppShell current="/keywords">
@@ -61,6 +67,7 @@ export default async function KeywordsPage({ searchParams }: { searchParams: Pro
           {[
             { id: "tracked", label: "Tracked", n: rows.length },
             { id: "discovered", label: "Discovered", n: discovered.length },
+            ...(otherStore ? [{ id: "both", label: "Both stores", n: null as number | null }] : []),
           ].map((t) => (
             <Link
               key={t.id}
@@ -69,7 +76,9 @@ export default async function KeywordsPage({ searchParams }: { searchParams: Pro
               className={`flex items-center gap-2 rounded-[8px] px-3.5 py-1.5 text-[13px] font-medium ${tab === t.id ? "border border-[var(--border)] bg-[var(--bg)] text-[var(--fg)] shadow-sm" : "text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
             >
               {t.label}
-              <span className={`num rounded-full px-1.5 text-[11px] ${tab === t.id ? "bg-[var(--bg-hover)] text-[var(--fg-muted)]" : "text-[var(--fg-subtle)]"}`}>{t.n}</span>
+              {t.n != null && (
+                <span className={`num rounded-full px-1.5 text-[11px] ${tab === t.id ? "bg-[var(--bg-hover)] text-[var(--fg-muted)]" : "text-[var(--fg-subtle)]"}`}>{t.n}</span>
+              )}
             </Link>
           ))}
         </div>
@@ -130,6 +139,12 @@ export default async function KeywordsPage({ searchParams }: { searchParams: Pro
           countries={countries}
           trackedAppId={active.tracked_app_id}
           autoTrackRanked={active.auto_track_ranked}
+          latestRun={latestRun}
+        />
+      ) : tab === "both" && otherStore ? (
+        <SideBySideTable
+          ios={active.platform === "ios" ? rows : otherRows}
+          android={active.platform === "android" ? rows : otherRows}
         />
       ) : (
         <KeywordsTable rows={rows} countries={countries} />

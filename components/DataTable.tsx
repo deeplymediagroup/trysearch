@@ -321,7 +321,28 @@ export function DataTable<T extends Record<string, any>>({
   initialSort?: SortingState;
 }) {
   const [sorting, setSorting] = useState<SortingState>(initialSort ?? []);
-  const [visibility, setVisibility] = useState<VisibilityState>(defaultHidden);
+  // Column choices persist per table (keyed by exportName) so a curated view survives reloads.
+  const storageKey = `trysearch.cols.${exportName}`;
+  const [visibility, setVisibilityState] = useState<VisibilityState>(() => {
+    if (typeof window === "undefined") return defaultHidden;
+    try {
+      const saved = window.localStorage.getItem(storageKey);
+      return saved ? { ...defaultHidden, ...JSON.parse(saved) } : defaultHidden;
+    } catch {
+      return defaultHidden;
+    }
+  });
+  const setVisibility: typeof setVisibilityState = (updater) => {
+    setVisibilityState((prev) => {
+      const next = typeof updater === "function" ? (updater as (o: VisibilityState) => VisibilityState)(prev) : updater;
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch {
+        /* storage full/blocked — the session still works */
+      }
+      return next;
+    });
+  };
   const [pageSize, setPageSize] = useState(50);
 
   const table = useReactTable({

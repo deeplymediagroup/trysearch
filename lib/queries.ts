@@ -374,16 +374,100 @@ export async function getAlertSettings(workspaceId: string) {
   return Object.fromEntries(rows.map((r) => [r.kind, r]));
 }
 
-export async function getReviews(appId: string, { minRating = 1, maxRating = 5, sort = "recent", limit = 100 } = {}) {
+export async function getReviews(
+  appId: string,
+  { minRating = 1, maxRating = 5, sort = "recent", limit = 100, country = null as string | null, offset = 0 } = {},
+) {
   const order = sort === "helpful" ? "helpful_count desc nulls last, reviewed_at desc" : "reviewed_at desc";
   return q(
-    `select id, country, rating, title, body, author, app_version, helpful_count, reviewed_at
+    `select id, country, rating, title, body, author, app_version, helpful_count, reviewed_at,
+            count(*) over() as total
        from reviews
       where app_id = $1 and rating between $2 and $3
+        and ($5::text is null or country = $5)
       order by ${order}
-      limit $4`,
-    [appId, minRating, maxRating, limit],
+      limit $4 offset $6`,
+    [appId, minRating, maxRating, limit, country, offset],
   );
+}
+
+/** Which countries have stored reviews for this app — drives the country selector. */
+export async function getReviewCountries(appId: string): Promise<{ country: string; n: number }[]> {
+  return q(`select country, count(*)::int as n from reviews where app_id = $1 group by country order by n desc`, [appId]);
+}
+
+/** Side-by-side compare: both listings + every keyword where both apps have a measurement. */
+export async function getCompareData(ownAppId: string, rivalAppId: string, trackedAppId: string) {
+  const [apps, shared] = await Promise.all([
+    q(
+      `select a.id, a.name, a.subtitle, a.developer_name, a.icon_url, a.version, a.description, a.price, a.store_id, a.platform,
+              s.rating_average, s.rating_count, s.install_count,
+              re.display as revenue_display, re.confidence as revenue_confidence, re.model as revenue_model
+         from apps a
+         left join lateral (select rating_average, rating_count, install_count from app_snapshots where app_id = a.id order by captured_on desc limit 1) s on true
+         left join lateral (select display, confidence, model from revenue_estimates where app_id = a.id order by estimated_on desc limit 1) re on true
+        where a.id = any($1::uuid[])`,
+      [[ownAppId, rivalAppId]],
+    ),
+    q(
+      `select k.term, k.country, k.popularity, k.popularity_estimate, k.difficulty,
+              mine.rank as my_rank, theirs.rank as their_rank
+         from tracked_keywords tk
+         join keywords k on k.id = tk.keyword_id
+         left join ranking_current mine  on mine.keyword_id = k.id and mine.app_id = $2
+         left join ranking_current theirs on theirs.keyword_id = k.id and theirs.app_id = $3
+        where tk.tracked_app_id = $1 and (mine.rank is not null or theirs.rank is not null)
+        order by coalesce(theirs.rank, 999) - coalesce(mine.rank, 999)`,
+      [trackedAppId, ownAppId, rivalAppId],
+    ),
+  ]);
+  return {
+    own: apps.find((a: any) => a.id === ownAppId) ?? null,
+    rival: apps.find((a: any) => a.id === rivalAppId) ?? null,
+    shared,
+  };
+}
+
+/** Latest on-demand discovery run for the progress indicator. */
+export async function getLatestDiscoveryRun(trackedAppId: string) {
+  return q1<{ id: string; status: string; progress: string | null; found: number }>(
+    `select id, status, progress, found from discovery_runs where tracked_app_id = $1 order by started_at desc limit 1`,
+    [trackedAppId],
+  );
+}
+
+/** Everything the per-keyword detail page needs, in one round trip per concern. */
+export async function getKeywordDetail(trackedKeywordId: string) {
+  const rows = await q<KeywordRow & { tracked_app_id: string }>(
+    `select v.* from v_tracked_keyword_rows v where v.tracked_keyword_id = $1`,
+    [trackedKeywordId],
+  );
+  const kw = rows[0];
+  if (!kw) return null;
+
+  const [history, serp] = await Promise.all([
+    // Rank history for EVERY workspace app on this keyword — yours and competitors on one chart.
+    q<{ app_id: string; app_name: string; role: string; checked_on: string; rank: number | null }>(
+      `select r.app_id, a.name as app_name, ta.role, r.checked_on::text, r.rank
+         from rankings r
+         join apps a on a.id = r.app_id
+         join tracked_apps ta on ta.app_id = r.app_id
+        where r.keyword_id = $1 and r.checked_on > current_date - interval '30 days'
+        order by r.checked_on`,
+      [kw.keyword_id],
+    ),
+    q<{ position: number; name: string | null; icon_url: string | null; subtitle: string | null; rating_count: number | null; rating_average: string | null; title_match: boolean | null; store_id: string | null }>(
+      `select sr.position, a.name, a.icon_url, a.subtitle, sr.rating_count, sr.rating_average, sr.title_match, a.store_id
+         from serp_results sr
+         join apps a on a.id = sr.app_id
+        where sr.keyword_id = $1
+          and sr.captured_on = (select max(captured_on) from serp_results where keyword_id = $1)
+        order by sr.position
+        limit 10`,
+      [kw.keyword_id],
+    ),
+  ]);
+  return { kw, history, serp };
 }
 
 /** Rank history for the chart. Never interpolates: missing days come back as gaps. */

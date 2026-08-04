@@ -31,6 +31,35 @@ export async function getActiveAppData(app: TrackedApp) {
     [app.tracked_app_id, app.app_id],
   );
 
+  // 30-day rank distribution with the switches the panel offers: keyword-count vs
+  // popularity-weighted stacks, everything vs starred targets only.
+  const distribution = await q<Record<string, unknown>>(
+    `select r.checked_on::text as metric_on,
+            count(*) filter (where r.rank <= 3)::int                                            as c1,
+            count(*) filter (where r.rank between 4 and 10)::int                                as c2,
+            count(*) filter (where r.rank between 11 and 30)::int                               as c3,
+            count(*) filter (where r.rank between 31 and 100)::int                              as c4,
+            count(*) filter (where r.rank > 100)::int                                           as c5,
+            coalesce(sum(coalesce(k.popularity_estimate, k.popularity, 0)) filter (where r.rank <= 3), 0)::int              as w1,
+            coalesce(sum(coalesce(k.popularity_estimate, k.popularity, 0)) filter (where r.rank between 4 and 10), 0)::int  as w2,
+            coalesce(sum(coalesce(k.popularity_estimate, k.popularity, 0)) filter (where r.rank between 11 and 30), 0)::int as w3,
+            coalesce(sum(coalesce(k.popularity_estimate, k.popularity, 0)) filter (where r.rank between 31 and 100), 0)::int as w4,
+            coalesce(sum(coalesce(k.popularity_estimate, k.popularity, 0)) filter (where r.rank > 100), 0)::int             as w5,
+            count(*) filter (where r.rank <= 3 and tk.starred)::int                             as s1,
+            count(*) filter (where r.rank between 4 and 10 and tk.starred)::int                 as s2,
+            count(*) filter (where r.rank between 11 and 30 and tk.starred)::int                as s3,
+            count(*) filter (where r.rank between 31 and 100 and tk.starred)::int               as s4,
+            count(*) filter (where r.rank > 100 and tk.starred)::int                            as s5
+       from rankings r
+       join keywords k on k.id = r.keyword_id
+       join tracked_keywords tk on tk.keyword_id = r.keyword_id and tk.tracked_app_id = $2
+      where r.app_id = $1 and r.rank is not null
+        and r.checked_on > current_date - interval '30 days'
+      group by r.checked_on
+      order by r.checked_on`,
+    [app.app_id, app.tracked_app_id],
+  );
+
   const bucketRows = await q<{ bucket: string; n: number }>(
     `select bucket, count(*)::int as n from competitive_positions where tracked_app_id = $1 group by bucket`,
     [app.tracked_app_id],
@@ -51,6 +80,7 @@ export async function getActiveAppData(app: TrackedApp) {
 
   return {
     series,
+    distribution,
     latest,
     staleness,
     visibilityDelta,
@@ -63,6 +93,7 @@ export async function getActiveAppData(app: TrackedApp) {
     buckets,
     biggestGap,
     topKeywords: keywords.slice(0, 6),
+    featInputs: keywords.map((k) => ({ term: k.term, rank: k.rank, best_rank: k.best_rank, delta_30d: k.delta_30d })),
     opportunities: opportunitiesFrom(keywords),
     improvements: [...keywords].filter((k) => (k.delta_7d ?? 0) > 0).sort((a, b) => (b.delta_7d ?? 0) - (a.delta_7d ?? 0)).slice(0, 5),
     drops: [...keywords].filter((k) => (k.delta_7d ?? 0) < 0).sort((a, b) => (a.delta_7d ?? 0) - (b.delta_7d ?? 0)).slice(0, 5),

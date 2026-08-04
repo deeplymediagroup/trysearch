@@ -39,12 +39,16 @@ export function RankingsView({
   const [plotted, setPlotted] = useState<Set<string>>(new Set());
   const [granularity, setGranularity] = useState("day");
   const [range, setRange] = useState("30");
+  const [compare, setCompare] = useState("off");
   const [view, setView] = useState<"keywords" | "country">("keywords");
 
   const filtered = useMemo(() => applyFilters(rows, filters), [rows, filters]);
 
   const series = useMemo(() => {
     const cutoff = range === "all" ? null : new Date(Date.now() - Number(range) * 86_400_000).toISOString().slice(0, 10);
+    // Ghost comparison: the same keywords, one window back (or one year back), re-dated onto
+    // the current axis and drawn dashed. Only meaningful with a bounded range.
+    const shiftDays = compare === "off" || range === "all" ? 0 : compare === "year" ? 365 : Number(range);
     // Week/month buckets average the ranks WITH data inside each bucket; a bucket where the
     // keyword was never found stays null so the chart shows a gap, not a fake rank.
     const bucketOf = (date: string) => {
@@ -57,31 +61,44 @@ export function RankingsView({
       return date;
     };
 
-    const out: { term: string; country: string; points: { date: string; rank: number | null }[] }[] = [];
+    const bucketize = (raw: { date: string; rank: number | null }[]) => {
+      if (granularity === "day") return raw;
+      const buckets = new Map<string, (number | null)[]>();
+      for (const p of raw) {
+        const b = bucketOf(p.date);
+        if (!buckets.has(b)) buckets.set(b, []);
+        buckets.get(b)!.push(p.rank);
+      }
+      return [...buckets.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, ranks]) => {
+        const found = ranks.filter((r): r is number => r != null);
+        return { date, rank: found.length ? Math.round(found.reduce((s, r) => s + r, 0) / found.length) : null };
+      });
+    };
+
+    const out: { term: string; country: string; points: { date: string; rank: number | null }[]; dashed?: boolean }[] = [];
     for (const key of plotted) {
       const [keywordId, country] = key.split("|");
-      const raw = history
+      const term = history.find((h) => String(h.keyword_id) === keywordId)?.term ?? keywordId;
+      const all = history
         .filter((h) => String(h.keyword_id) === keywordId && h.country === country)
-        .map((h) => ({ date: String(h.checked_on).slice(0, 10), rank: h.rank }))
-        .filter((p) => !cutoff || p.date >= cutoff);
+        .map((h) => ({ date: String(h.checked_on).slice(0, 10), rank: h.rank }));
 
-      let points = raw;
-      if (granularity !== "day") {
-        const buckets = new Map<string, (number | null)[]>();
-        for (const p of raw) {
-          const b = bucketOf(p.date);
-          if (!buckets.has(b)) buckets.set(b, []);
-          buckets.get(b)!.push(p.rank);
-        }
-        points = [...buckets.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, ranks]) => {
-          const found = ranks.filter((r): r is number => r != null);
-          return { date, rank: found.length ? Math.round(found.reduce((s, r) => s + r, 0) / found.length) : null };
-        });
+      const points = bucketize(all.filter((p) => !cutoff || p.date >= cutoff));
+      if (points.length) out.push({ term, country, points });
+
+      if (shiftDays && cutoff) {
+        const shiftMs = shiftDays * 86_400_000;
+        const prevCutoff = new Date(new Date(`${cutoff}T00:00:00Z`).getTime() - shiftMs).toISOString().slice(0, 10);
+        const ghost = bucketize(
+          all
+            .filter((p) => p.date >= prevCutoff && p.date < cutoff)
+            .map((p) => ({ date: new Date(new Date(`${p.date}T00:00:00Z`).getTime() + shiftMs).toISOString().slice(0, 10), rank: p.rank })),
+        );
+        if (ghost.length) out.push({ term: `${term} ${compare === "year" ? "(last year)" : "(prev period)"}`, country, points: ghost, dashed: true });
       }
-      if (points.length) out.push({ term: history.find((h) => String(h.keyword_id) === keywordId)?.term ?? keywordId, country, points });
     }
     return out;
-  }, [plotted, history, range, granularity]);
+  }, [plotted, history, range, granularity, compare]);
 
   const togglePlot = (row: KeywordRow) => {
     const key = `${row.keyword_id}|${row.country}`;
@@ -168,6 +185,11 @@ export function RankingsView({
           {RANGES.map((r) => (
             <option key={r.value} value={r.value}>{r.label}</option>
           ))}
+        </Select>
+        <Select value={compare} onChange={setCompare} label="Compare against">
+          <option value="off">No comparison</option>
+          <option value="prev" disabled={range === "all"}>vs previous period</option>
+          <option value="year" disabled={range === "all"}>vs same period last year</option>
         </Select>
         <div className="flex items-center gap-1 rounded-[var(--radius-chip)] border border-[var(--border)] p-0.5">
           {(["keywords", "country"] as const).map((v) => (

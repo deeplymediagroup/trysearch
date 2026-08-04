@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { Panel, Chip, EmptyState, CountryFlag, StalenessNote } from "@/components/ui";
-import { getReviews, getStaleness, getLatestReviewAnalysis } from "@/lib/queries";
+import { getReviews, getReviewCountries, getStaleness, getLatestReviewAnalysis } from "@/lib/queries";
 import { classifyReviews } from "@/lib/reviews";
 import { analyzeReviews } from "@/app/actions/ai";
 import { aiEnabled } from "@/lib/ai";
@@ -11,11 +11,17 @@ import * as fmt from "@/lib/format";
 export const metadata = { title: "Reviews — trysearch" };
 export const dynamic = "force-dynamic";
 
-export default async function ReviewsPage({ searchParams }: { searchParams: Promise<{ min?: string; max?: string; sort?: string; analyze?: string }> }) {
-  const { min = "1", max = "5", sort = "recent", analyze } = await searchParams;
-  const { active } = await getActiveApp();
+const PAGE_SIZE = 50;
 
-  if (!active) {
+export default async function ReviewsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ min?: string; max?: string; sort?: string; analyze?: string; cc?: string; page?: string; rapp?: string }>;
+}) {
+  const { min = "1", max = "5", sort = "recent", analyze, cc, page = "1", rapp } = await searchParams;
+  const { apps, active: own } = await getActiveApp();
+
+  if (!own) {
     return (
       <AppShell current="/reviews">
         <PageHeader title="Reviews" />
@@ -24,11 +30,25 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
     );
   }
 
-  const [reviews, staleness, aiAnalysis] = await Promise.all([
-    getReviews(active.app_id, { minRating: Number(min), maxRating: Number(max), sort, limit: 200 }),
+  // The page can show any tracked app's reviews — competitor complaint mining is half the point.
+  const active = apps.find((a) => a.app_id === rapp) ?? own;
+  const pageNum = Math.max(1, Number(page) || 1);
+
+  const [reviews, reviewCountries, staleness, aiAnalysis] = await Promise.all([
+    getReviews(active.app_id, { minRating: Number(min), maxRating: Number(max), sort, limit: PAGE_SIZE, country: cc || null, offset: (pageNum - 1) * PAGE_SIZE }),
+    getReviewCountries(active.app_id),
     getStaleness(active.app_id),
     getLatestReviewAnalysis(active.app_id),
   ]);
+  const total = Number((reviews[0] as any)?.total ?? 0);
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const qs = (patch: Record<string, string | undefined>) => {
+    const merged: Record<string, string | undefined> = { min, max, sort, cc, rapp, ...patch };
+    const sp = new URLSearchParams();
+    for (const [k, v] of Object.entries(merged)) if (v) sp.set(k, v);
+    return `/reviews?${sp}`;
+  };
+  const others = apps.filter((a) => a.platform === own.platform);
 
   const analysis = analyze ? classifyReviews(reviews as any) : null;
 
@@ -59,22 +79,53 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
       />
 
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-6 py-2.5">
+        {others.length > 1 && (
+          <>
+            <span className="th">App</span>
+            {others.map((a) => (
+              <Link
+                key={a.app_id}
+                href={qs({ rapp: a.app_id === own.app_id ? undefined : a.app_id, page: undefined, cc: undefined })}
+                className={`flex items-center gap-1.5 rounded-[var(--radius-chip)] border px-2 py-0.5 text-[12px] ${a.app_id === active.app_id ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--fg-muted)]"}`}
+              >
+                {a.name}
+                {a.role === "competitor" && <span className="text-[10px] text-[var(--fg-subtle)]">rival</span>}
+              </Link>
+            ))}
+            <span className="text-[var(--fg-subtle)]">·</span>
+          </>
+        )}
         <span className="th">Rating</span>
-        {[1, 2, 3, 4, 5].map((star) => {
-          const on = Number(min) <= star && star <= Number(max);
-          return (
-            <Link
-              key={star}
-              href={`/reviews?min=${star}&max=${star}&sort=${sort}`}
-              className={`rounded-[var(--radius-chip)] border px-2 py-0.5 text-[12px] ${Number(min) === star && Number(max) === star ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--fg-muted)]"}`}
-            >
-              {star}★
-            </Link>
-          );
-        })}
-        <Link href={`/reviews?min=1&max=5&sort=${sort}`} className="rounded-[var(--radius-chip)] border border-[var(--border)] px-2 py-0.5 text-[12px] text-[var(--fg-muted)]">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Link
+            key={star}
+            href={qs({ min: String(star), max: String(star), page: undefined })}
+            className={`rounded-[var(--radius-chip)] border px-2 py-0.5 text-[12px] ${Number(min) === star && Number(max) === star ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--fg-muted)]"}`}
+          >
+            {star}★
+          </Link>
+        ))}
+        <Link href={qs({ min: "1", max: "5", page: undefined })} className="rounded-[var(--radius-chip)] border border-[var(--border)] px-2 py-0.5 text-[12px] text-[var(--fg-muted)]">
           All
         </Link>
+
+        {reviewCountries.length > 1 && (
+          <>
+            <span className="ml-2 th">Market</span>
+            <Link href={qs({ cc: undefined, page: undefined })} className={`rounded-[var(--radius-chip)] border px-2 py-0.5 text-[12px] ${!cc ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--fg-muted)]"}`}>
+              All
+            </Link>
+            {reviewCountries.map((c) => (
+              <Link
+                key={c.country}
+                href={qs({ cc: c.country, page: undefined })}
+                className={`rounded-[var(--radius-chip)] border px-2 py-0.5 text-[12px] ${cc === c.country ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--fg-muted)]"}`}
+              >
+                {c.country.toUpperCase()} <span className="num text-[10px] text-[var(--fg-subtle)]">{c.n}</span>
+              </Link>
+            ))}
+          </>
+        )}
 
         <span className="ml-3 flex items-center gap-1 rounded-[var(--radius-chip)] border border-[var(--border)] p-0.5">
           {[
@@ -83,7 +134,7 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
           ].map((s) => (
             <Link
               key={s.id}
-              href={`/reviews?min=${min}&max=${max}&sort=${s.id}`}
+              href={qs({ sort: s.id, page: undefined })}
               className={`rounded-[5px] px-2 py-0.5 text-[12px] ${sort === s.id ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--fg-muted)]"}`}
             >
               {s.label}
@@ -172,7 +223,18 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
               : "Try a wider rating range."}
           </EmptyState>
         ) : (
-          <Panel caption="From the public customer-reviews feed. Each country is its own 500-review pool.">
+          <Panel
+            caption={`From the public customer-reviews feed. Each country is its own 500-review pool. ${total} match${total === 1 ? "es" : ""} this filter.`}
+            action={
+              pages > 1 ? (
+                <span className="flex items-center gap-1 text-[12px] text-[var(--fg-subtle)]">
+                  {pageNum > 1 && <Link href={qs({ page: String(pageNum - 1) })} className="rounded px-2 py-0.5 hover:text-[var(--fg)]">‹ Prev</Link>}
+                  <span className="num">{pageNum} / {pages}</span>
+                  {pageNum < pages && <Link href={qs({ page: String(pageNum + 1) })} className="rounded px-2 py-0.5 hover:text-[var(--fg)]">Next ›</Link>}
+                </span>
+              ) : undefined
+            }
+          >
             <ul className="divide-y divide-[var(--border)]">
               {reviews.map((r: any) => (
                 <li key={r.id} className="py-3">

@@ -6,12 +6,14 @@
  * Keywords the system found that the user has NOT yet chosen to track. Its sources differ
  * from the Tracked tab: AI, Your listing, Autocomplete, Competitor.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable, FilterBar, applyFilters, useFilters } from "./DataTable";
 import { RankPill, ScoreCell, PopularityCell, Chip, CountryFlag, EmptyState, EstimateLegend, SOURCE_LABELS } from "./ui";
 import * as fmt from "@/lib/format";
 import { promoteDiscovered, dismissDiscovered, setAutoTrackRanked } from "@/app/actions/keywords";
+import { runDiscovery } from "@/app/actions/discovery";
 import type { DiscoveredRow } from "@/lib/queries";
 
 const SUB_TABS = [
@@ -20,16 +22,91 @@ const SUB_TABS = [
   { id: "opportunities", label: "Opportunities" },
 ];
 
+export type DiscoveryRun = { id: string; status: string; progress: string | null; found: number } | null;
+
+/** "Re-run discovery" button + market picker; polls the server payload while a run is live. */
+function RunDiscoveryControl({ trackedAppId, countries, run }: { trackedAppId: string; countries: string[]; run: DiscoveryRun }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set(countries.slice(0, 1)));
+  const [error, setError] = useState<string | null>(null);
+  const running = run?.status === "running";
+
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => router.refresh(), 4000);
+    return () => clearInterval(t);
+  }, [running, router]);
+
+  if (running) {
+    return (
+      <span className="flex items-center gap-2 text-[12px] text-[var(--fg-muted)]">
+        <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-[var(--accent)]" />
+        {run?.progress ?? "Running…"} <span className="num text-[var(--fg-subtle)]">{run?.found ?? 0} found</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="relative">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="h-8 rounded-[var(--radius-chip)] border border-[var(--border)] px-2.5 text-[12px] text-[var(--fg-muted)] hover:text-[var(--fg)]">
+        Re-run discovery{run?.status === "done" ? ` · last found ${run.found}` : ""}
+      </button>
+      {open && (
+        <span className="absolute right-0 top-full z-40 mt-1 block w-56 rounded-[10px] border border-[var(--border)] bg-[var(--bg-elevated)] p-2.5 shadow-lg">
+          <span className="th mb-1.5 block">Markets (max 3)</span>
+          {countries.map((cc) => (
+            <label key={cc} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-[12px] hover:bg-[var(--bg-hover)]">
+              <input
+                type="checkbox"
+                checked={picked.has(cc)}
+                onChange={(e) =>
+                  setPicked((s) => {
+                    const next = new Set(s);
+                    if (e.target.checked && next.size < 3) next.add(cc);
+                    else next.delete(cc);
+                    return next;
+                  })
+                }
+              />
+              {cc.toUpperCase()}
+            </label>
+          ))}
+          <button
+            type="button"
+            disabled={!picked.size}
+            onClick={async () => {
+              setError(null);
+              const res = await runDiscovery(trackedAppId, [...picked]);
+              if (res.error) setError(res.error);
+              else {
+                setOpen(false);
+                router.refresh();
+              }
+            }}
+            className="mt-2 h-8 w-full rounded-[var(--radius-chip)] bg-[var(--primary)] px-2 text-[12px] font-medium text-white disabled:opacity-50"
+          >
+            Start run
+          </button>
+          {error && <span className="mt-1 block text-[11px] text-[var(--down)]">{error}</span>}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function DiscoveredTable({
   rows,
   countries,
   trackedAppId,
   autoTrackRanked,
+  latestRun = null,
 }: {
   rows: DiscoveredRow[];
   countries: string[];
   trackedAppId: string;
   autoTrackRanked: boolean;
+  latestRun?: DiscoveryRun;
 }) {
   const [filters, setFilters] = useFilters();
   const [subTab, setSubTab] = useState("all");
@@ -137,6 +214,7 @@ export function DiscoveredTable({
           })}
         </div>
         <div className="flex items-center gap-2">
+          <RunDiscoveryControl trackedAppId={trackedAppId} countries={countries.length ? countries : ["us"]} run={latestRun} />
           <label
             className="flex items-center gap-1.5 text-[11px] text-[var(--fg-muted)]"
             title="Any discovered keyword found to be RANKING is promoted to Tracked by the nightly rollup, best rank first, up to 50 a day. Ideas that don't rank are never auto-tracked. Nothing has been measured as ranking yet, so this stays quiet until discovered keywords get a rank of their own."

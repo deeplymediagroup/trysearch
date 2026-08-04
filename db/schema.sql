@@ -873,3 +873,18 @@ join tracked_apps ta   on ta.id = tk.tracked_app_id
 left join ranking_current rc
        on rc.keyword_id = tk.keyword_id
       and rc.app_id     = ta.app_id;
+
+-- ===========================================================================
+-- ON-DEMAND DISCOVERY RUNS (2026-08: the "Re-run discovery" button)
+-- ===========================================================================
+create table if not exists discovery_runs (
+  id             uuid primary key default gen_random_uuid(),
+  tracked_app_id uuid not null references tracked_apps(id) on delete cascade,
+  status         text not null default 'running' check (status in ('running','done','error')),
+  countries      text[] not null,
+  progress       text,
+  found          integer not null default 0,
+  started_at     timestamptz not null default now(),
+  finished_at    timestamptz
+);
+create index if not exists discovery_runs_by_app on discovery_runs (tracked_app_id, started_at desc);

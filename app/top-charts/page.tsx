@@ -9,6 +9,7 @@ import Link from "next/link";
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { Panel, Chip, EmptyState, Sparkline, DeltaBadge } from "@/components/ui";
 import { getChartCombos, getChartSnapshot } from "@/lib/queries";
+import { ExportButtons } from "@/components/ExportButtons";
 import * as fmt from "@/lib/format";
 
 export const metadata = { title: "Top Charts — trysearch" };
@@ -95,7 +96,10 @@ export default async function TopChartsPage({ searchParams }: { searchParams: Pr
       </div>
 
       <div className="grid gap-4 p-6 lg:grid-cols-[1fr_280px]">
-        <Panel caption="Click a row for its 30-day rank history. Your tracked apps are highlighted.">
+        <Panel
+          caption="Click a row for its 30-day rank history. Your tracked apps are highlighted."
+          action={<ExportButtons name={`top-charts-${platform}-${country}-${category}`} rows={withDelta.map((r) => ({ rank: r.rank, delta: r.delta, app: r.name, developer: r.developer_name, store_id: r.store_id }))} />}
+        >
           {rows.length === 0 ? (
             <EmptyState title="No snapshot for this selection yet">Give the nightly crawl one run.</EmptyState>
           ) : (

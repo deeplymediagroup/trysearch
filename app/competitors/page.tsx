@@ -7,7 +7,7 @@
 import Link from "next/link";
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { Panel, RankPill, ScoreCell, PopularityCell, CountryFlag, Chip, EmptyState, StalenessNote, EstimateLegend } from "@/components/ui";
-import { getCompetitors, getCompetitivePositions, getStaleness, getAiAnalyses, getSuggestedCompetitors } from "@/lib/queries";
+import { getCompetitors, getCompetitivePositions, getStaleness, getAiAnalyses, getSuggestedCompetitors, getCompareData } from "@/lib/queries";
 import { generateLandscape } from "@/app/actions/ai";
 import { addSuggestedCompetitor, addAllSuggestedCompetitors, dismissCompetitorSuggestion } from "@/app/actions/apps";
 import { trackTermsFromAnalysis } from "@/app/actions/keywords";
@@ -27,8 +27,8 @@ const BUCKETS = [
   { id: "lead", label: "You lead", hint: "You outrank every tracked competitor." },
 ];
 
-export default async function CompetitorsPage({ searchParams }: { searchParams: Promise<{ tab?: string; bucket?: string }> }) {
-  const { tab = "competitors", bucket } = await searchParams;
+export default async function CompetitorsPage({ searchParams }: { searchParams: Promise<{ tab?: string; bucket?: string; compare?: string }> }) {
+  const { tab = "competitors", bucket, compare } = await searchParams;
   const { active } = await getActiveApp();
 
   if (!active) {
@@ -50,6 +50,11 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
 
   const counts = Object.fromEntries(BUCKETS.map((b) => [b.id, positions.filter((p: any) => p.bucket === b.id).length]));
   const shown = bucket ? positions.filter((p: any) => p.bucket === bucket) : positions;
+
+  const comparison =
+    compare && competitors.some((c: any) => c.app_id === compare)
+      ? await getCompareData(active.app_id, compare, active.tracked_app_id)
+      : null;
 
   return (
     <AppShell current="/competitors">
@@ -87,6 +92,68 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
       </nav>
 
       <div className="p-6">
+        {comparison?.own && comparison?.rival && (
+          <Panel
+            className="mb-4"
+            title={`${comparison.own.name} vs ${comparison.rival.name}`}
+            caption="Side-by-side listing and every shared keyword measurement, sorted by where they beat you hardest."
+            action={<Link href="/competitors" className="text-[12px] text-[var(--fg-subtle)] hover:text-[var(--fg)]">✕ Close</Link>}
+          >
+            <div className="grid gap-4 lg:grid-cols-2">
+              {[comparison.own, comparison.rival].map((a: any, i) => (
+                <div key={a.id} className={i === 1 ? "lg:border-l lg:border-[var(--border)] lg:pl-4" : ""}>
+                  <div className="flex items-center gap-2.5">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {a.icon_url && <img src={a.icon_url} alt="" width={36} height={36} className="rounded-[9px]" />}
+                    <div>
+                      <p className="text-[14px] font-semibold">{a.name} {i === 0 && <Chip tone="branded">You</Chip>}</p>
+                      <p className="text-[12px] text-[var(--fg-muted)]">{a.subtitle ?? fmt.EM_DASH}</p>
+                    </div>
+                  </div>
+                  <dl className="mt-3 space-y-1.5 text-[12px]">
+                    {[
+                      ["Developer", a.developer_name ?? fmt.EM_DASH],
+                      ["Version", a.version ?? fmt.EM_DASH],
+                      ["Rating", `★ ${fmt.rating(a.rating_average)} (${fmt.count(a.rating_count)})`],
+                      ["Est. revenue", a.revenue_display ? `${a.revenue_display} · ${a.revenue_model ?? ""}` : fmt.EM_DASH],
+                    ].map(([label, value]) => (
+                      <div key={label as string} className="flex justify-between gap-3">
+                        <dt className="text-[var(--fg-subtle)]">{label}</dt>
+                        <dd className="num text-right">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              ))}
+            </div>
+            {comparison.shared.length > 0 && (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-[12.5px]">
+                  <thead>
+                    <tr className="border-b border-[var(--border)]">
+                      {["Keyword", "Market", "Popularity", "Difficulty", "Your rank", "Their rank"].map((h) => (
+                        <th key={h} scope="col" className="th px-3 py-2 text-left whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comparison.shared.slice(0, 30).map((s: any) => (
+                      <tr key={`${s.term}-${s.country}`} className="border-b border-[var(--border)]">
+                        <td className="px-3 py-1.5 font-medium">{s.term}</td>
+                        <td className="px-3 py-1.5"><CountryFlag country={s.country} /></td>
+                        <td className="px-3 py-1.5"><PopularityCell keyword={s} /></td>
+                        <td className="px-3 py-1.5"><ScoreCell value={s.difficulty} /></td>
+                        <td className="px-3 py-1.5"><RankPill state={{ rank: s.my_rank, found: s.my_rank != null, checked: true }} /></td>
+                        <td className="px-3 py-1.5"><RankPill state={{ rank: s.their_rank, found: s.their_rank != null, checked: true }} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        )}
+
         {tab === "competitors" && suggestions.length > 0 && (
           <Panel
             title="Suggested competitors"
@@ -178,7 +245,10 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
                           {c.revenue_confidence && <span className="ml-1 text-[10px] text-[var(--fg-subtle)]">{c.revenue_confidence}</span>}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <RemoveCompetitorButton trackedAppId={c.tracked_app_id} name={c.name} />
+                          <span className="inline-flex items-center gap-2">
+                            <Link href={`/competitors?compare=${c.app_id}`} className="text-[12px] text-[var(--fg-muted)] hover:text-[var(--fg)]">Compare</Link>
+                            <RemoveCompetitorButton trackedAppId={c.tracked_app_id} name={c.name} />
+                          </span>
                         </td>
                       </tr>
                     ))}

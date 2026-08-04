@@ -14,7 +14,8 @@ import { DataTable, FilterBar, applyFilters, useFilters } from "./DataTable";
 import { RankPill, DeltaBadge, ScoreCell, PopularityCell, Chip, CountryFlag, AppIconStrip, Sparkline, EmptyState, EstimateLegend, SOURCE_LABELS } from "./ui";
 import * as fmt from "@/lib/format";
 import { quadrantFor, QUADRANT_LABELS } from "@/lib/scoring/scores.mjs";
-import { untrackKeywords } from "@/app/actions/keywords";
+import Link from "next/link";
+import { untrackKeywords, starKeyword, setKeywordNote } from "@/app/actions/keywords";
 import type { KeywordRow } from "@/lib/queries";
 
 const SOURCES = [
@@ -81,6 +82,26 @@ export function KeywordsTable({ rows, countries }: { rows: KeywordRow[]; countri
         ),
       },
       {
+        id: "star",
+        enableSorting: true,
+        accessorFn: (r) => (r.starred ? 1 : 0),
+        header: () => <span title="Starred keywords are your targets">★</span>,
+        cell: ({ row }) => {
+          const r = row.original;
+          return (
+            <button
+              type="button"
+              aria-label={r.starred ? `Unstar ${r.term}` : `Star ${r.term}`}
+              aria-pressed={r.starred}
+              onClick={() => starKeyword(r.tracked_keyword_id, !r.starred)}
+              className={`text-[15px] leading-none ${r.starred ? "text-[var(--warn)]" : "text-[var(--border-strong)] hover:text-[var(--fg-subtle)]"}`}
+            >
+              {r.starred ? "★" : "☆"}
+            </button>
+          );
+        },
+      },
+      {
         id: "term",
         header: "Keyword",
         accessorKey: "term",
@@ -90,7 +111,19 @@ export function KeywordsTable({ rows, countries }: { rows: KeywordRow[]; countri
           const evidence = (r.difficulty_parts as any)?.beatable?.reason;
           return (
             <div className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate text-[14px] font-medium text-[var(--fg)]">{r.term}</span>
+              <Link href={`/keywords/k/${r.tracked_keyword_id}`} className="truncate text-[14px] font-medium text-[var(--fg)] hover:underline">{r.term}</Link>
+              <button
+                type="button"
+                aria-label={r.note ? `Edit note on ${r.term}` : `Add note to ${r.term}`}
+                title={r.note ?? "Add a note"}
+                onClick={() => {
+                  const next = window.prompt(`Note for "${r.term}"`, r.note ?? "");
+                  if (next !== null) setKeywordNote(r.tracked_keyword_id, next.trim() || null);
+                }}
+                className={`text-[11px] leading-none ${r.note ? "text-[var(--accent)]" : "text-[var(--border-strong)] hover:text-[var(--fg-subtle)]"}`}
+              >
+                ✎
+              </button>
               <Chip tone={r.is_branded ? "branded" : "neutral"}>{r.is_branded ? "Branded" : "Generic"}</Chip>
               {beatable && (
                 <Chip tone="beatable" title={evidence ?? "A top-3 slot looks winnable"}>

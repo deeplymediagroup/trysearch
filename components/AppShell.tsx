@@ -26,6 +26,10 @@ import {
   HeartPulse,
   Megaphone,
   ChevronsUpDown,
+  Image as ImageIcon,
+  Flame,
+  Code,
+  Bot,
   type LucideIcon,
 } from "lucide-react";
 import { listTrackedApps, type TrackedApp } from "@/lib/queries";
@@ -64,8 +68,10 @@ const NAV: NavGroup[] = [
       { label: "Listing Helper", href: "/listing-helper", badge: "NEW", icon: Sparkles },
       { label: "Autocomplete", href: "/autocomplete", icon: Keyboard },
       { label: "Top Charts", href: "/top-charts", badge: "NEW", icon: BarChart3 },
-      { label: "Research", href: "/research", badge: "NEW", icon: FlaskConical },
-      { label: "Revenue", href: "/revenue", badge: "ALPHA", icon: DollarSign },
+      { label: "Research", href: "/research", icon: FlaskConical },
+      { label: "Screenshots", href: "/screenshots", badge: "NEW", icon: ImageIcon },
+      { label: "Trends", href: "/trends", badge: "ALPHA", icon: Flame },
+      { label: "Revenue", href: "/revenue", icon: DollarSign },
     ],
   },
   {
@@ -73,6 +79,13 @@ const NAV: NavGroup[] = [
     items: [
       { label: "Performance", href: "/performance", icon: LineChart },
       { label: "Engagement", href: "/engagement", icon: HeartPulse },
+    ],
+  },
+  {
+    header: "General",
+    items: [
+      { label: "Connect AI", href: "/connect-ai", badge: "NEW", icon: Bot },
+      { label: "Developers", href: "/developers", icon: Code },
     ],
   },
 ];

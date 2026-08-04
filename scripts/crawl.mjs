@@ -555,7 +555,7 @@ if (JOBS.includes("revenue")) {
  * every other credentialed job follows.
  */
 if (JOBS.includes("asc_sync")) {
-  const { ascConfigured, ascVendorConfigured, fetchEngagementRows, aggregateEngagement, fetchSalesReportTsv, parseSalesReport } =
+  const { ascConfigured, ascVendorConfigured, fetchEngagementRows, aggregateEngagement, fetchSalesReportTsv, parseSalesReport, fetchListingLocalizations } =
     await import("../lib/stores/asc.mjs");
 
   if (!ascConfigured()) {
@@ -631,6 +631,27 @@ if (JOBS.includes("asc_sync")) {
               rowsWritten++;
             }
           }
+        }
+        // Hidden keywords field + promotional text — the one listing fact only ASC can see.
+        // Needs an App Manager key; a Sales-role key returns null here and we move on.
+        try {
+          const locs = await fetchListingLocalizations(app.store_id);
+          for (const loc of locs ?? []) {
+            if (loc.keywords == null && loc.promotional_text == null) continue;
+            await db.query(
+              `update app_snapshots set keywords_field = coalesce($3, keywords_field),
+                      promotional_text = coalesce($4, promotional_text)
+                where id in (
+                  select id from app_snapshots
+                   where app_id = $1 and (locale is null or lower(replace(locale,'_','-')) = lower($2))
+                   order by captured_on desc limit 1
+                )`,
+              [app.app_id, loc.locale.replace("_", "-"), loc.keywords, loc.promotional_text],
+            );
+          }
+          if (locs === null && ascConfigured()) jobWarnings.push(`asc listing ${app.name}: keywords field not readable (key needs the App Manager role).`);
+        } catch (err) {
+          jobWarnings.push(`asc listing ${app.name}: ${err.message}`);
         }
       } catch (err) {
         jobWarnings.push(`asc_sync ${app.name}: ${err.message}`);
@@ -1011,6 +1032,20 @@ if (JOBS.includes("metrics")) {
         best: minOrNull(depth.best, observed?.best),
         hits: (depth.hits ?? 0) + (observed?.hits ?? 0),
       };
+
+      // Real Apple Search Popularity first, when ASA credentials exist and the seam yields a
+      // value; the store column is what flips popularity_source to 'store'.
+      if (kw.platform === "ios") {
+        try {
+          const { asaConfigured, searchPopularity } = await import("../lib/stores/asa.mjs");
+          if (asaConfigured()) {
+            const sap = (await searchPopularity([kw.term], kw.country.toUpperCase())).get(kw.term);
+            if (sap != null) await db.query(`update keywords set popularity = $2 where id = $1`, [kw.keyword_id, sap]);
+          }
+        } catch (err) {
+          jobWarnings.push(`asa popularity "${kw.term}": ${err.message}`);
+        }
+      }
 
       let result;
       if (kw.platform === "android") {

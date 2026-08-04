@@ -7,7 +7,8 @@
 import Link from "next/link";
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { KpiTile, Panel, RankPill, DeltaBadge, Sparkline, CountryFlag, EmptyState, StalenessNote, EstimateLegend, Chip } from "@/components/ui";
-import { VisibilityChart, ShareOfVoiceChart, BracketAreaChart } from "@/components/Charts";
+import { VisibilityChart, ShareOfVoiceChart, RankDistributionPanel } from "@/components/Charts";
+import { AchievementsGrid } from "@/components/Achievements";
 import { getActiveAppData } from "./data";
 import * as fmt from "@/lib/format";
 
@@ -76,7 +77,11 @@ export default async function DashboardPage() {
         </div>
 
         <Panel title="Ranked Keywords" caption="Stacked by rank bracket. Unranked keywords are excluded, not placed in 100+.">
-          <BracketAreaChart data={d.series} />
+          <RankDistributionPanel data={d.distribution} />
+        </Panel>
+
+        <Panel title="Achievements" caption="Derived live from your rank data. Click an unlocked feat to download a share card.">
+          <AchievementsGrid keywords={d.featInputs} appName={active.name} />
         </Panel>
 
         {/* Panels */}

@@ -8,6 +8,20 @@ export const metadata = { title: "What's New — trysearch" };
 
 const ENTRIES: { date: string; title: string; items: string[] }[] = [
   {
+    date: "2026-08-04",
+    title: "The everything release",
+    items: [
+      "Keyword detail pages — click any tracked keyword for its metrics, Beatable evidence, 30-day trend against every competitor, and the latest captured SERP.",
+      "Re-run discovery on demand with a market picker and live progress; new candidates arrive relevance-scored.",
+      "Screenshot Studio — a canvas editor for store screenshots: device frames, gradients, per-locale text, full-resolution PNG export.",
+      "Trends (alpha) — AI-clustered rising niches with momentum and a rising-keywords feed, computed nightly.",
+      "Compare any competitor side-by-side: listings, ratings, revenue and every shared keyword rank.",
+      "Rank Trend period-compare (previous period or same period last year, dashed ghost lines), popularity-weighted and starred-only dashboard distributions.",
+      "Achievements with downloadable share cards; stars and notes editable right in the keywords table; Both-stores side-by-side columns; reviews get country filters, pagination and competitor review browsing.",
+      "New free public tools: Keyword Generator, Keyword Difficulty checker and the App Store Roast. Plus /connect-ai prompts, /developers API docs generated from the op registry, a CLI, 100 storefronts, and flag icons everywhere.",
+    ],
+  },
+  {
     date: "2026-08-03",
     title: "Smarter discovery",
     items: [
