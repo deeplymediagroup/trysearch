@@ -8,6 +8,16 @@ export const metadata = { title: "What's New — trysearch" };
 
 const ENTRIES: { date: string; title: string; items: string[] }[] = [
   {
+    date: "2026-08-03",
+    title: "Smarter discovery",
+    items: [
+      "AI relevance scoring — every discovered keyword now carries a 0–100 intent-match score with a one-line reason (hover the Relevance column). Opportunity ranking uses it.",
+      "AI keyword generation — the nightly discovery run reads your listing and your competitors' and proposes intent phrases, niches and competitor-derivative queries; only candidates confirmed by live autocomplete are kept.",
+      "Chart discovery — top-chart apps in your category feed their keyword-indexed subtitles into discovery, gated by the relevance pass.",
+      "Competitive analyses now diff themselves against the previous run (\"What changed\"), and each opportunity cluster has a one-click Track all.",
+    ],
+  },
+  {
     date: "2026-07-31",
     title: "AI, API & MCP release",
     items: [

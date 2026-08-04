@@ -27,8 +27,10 @@ import {
   appleAutocomplete,
   suggestDepth,
   appleInAppPurchases,
+  appleChartsSSR,
 } from "../lib/stores/apple.mjs";
 import { playSearchRanked, playAppDetail, playSuggest, playSuggestBroad, extractListingKeywords } from "../lib/stores/play.mjs";
+import { aiEnabled, scoreRelevance, generateKeywordCandidates, verifyCandidate } from "../lib/ai.mjs";
 import {
   difficulty,
   serpOutlier,
@@ -158,7 +160,7 @@ const trackedApps = await q(
   db,
   `select ta.id as tracked_app_id, ta.workspace_id, ta.role, ta.competitor_of, ta.device,
           ta.auto_track_ranked,
-          a.id as app_id, a.platform, a.store_id, a.name
+          a.id as app_id, a.platform, a.store_id, a.name, a.primary_genre
      from tracked_apps ta
      join apps a on a.id = ta.app_id
     where ta.is_active
@@ -1126,8 +1128,70 @@ async function discoverFor(app, jobWarnings) {
     }
   }
 
-  // Source E — charts would go here; deferred because the chart→keyword mapping needs the
-  // AI relevance pass to be worth the rows. Autocomplete already covers the same ground.
+  // Source E — category charts. Chart apps' subtitles are keyword-indexed like Source D's;
+  // this source was deferred until the relevance pass below existed to gate its noise.
+  // The root charts page no longer serves the live category list, so the decade-stable
+  // Apple genre ids are mapped here (apps only — Games charts use a different URL shape).
+  const APPLE_GENRE_IDS = {
+    "books": 6018, "business": 6000, "developer tools": 6026, "education": 6017,
+    "entertainment": 6016, "finance": 6015, "food & drink": 6023, "graphics & design": 6027,
+    "health & fitness": 6013, "lifestyle": 6012, "magazines & newspapers": 6021,
+    "medical": 6020, "music": 6011, "navigation": 6010, "news": 6009,
+    "photo & video": 6008, "productivity": 6007, "reference": 6006, "shopping": 6024,
+    "social networking": 6005, "sports": 6004, "travel": 6003, "utilities": 6002, "weather": 6001,
+  };
+  if (app.platform === "ios" && app.primary_genre) {
+    const genreId = APPLE_GENRE_IDS[app.primary_genre.toLowerCase()];
+    if (genreId) {
+      try {
+        const slug = `${app.primary_genre.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-apps`;
+        const { charts } = await appleChartsSSR(countries[0], genreId, slug);
+        addAll(
+          charts.flatMap((c) => c.entries.filter((e) => e.subtitle).flatMap((e) => bigrams(e.subtitle))),
+          "chart",
+        );
+      } catch (err) {
+        jobWarnings.push(`discovery charts ${app.name}: ${err.message}`);
+      }
+    }
+  }
+
+  // Source F — AI candidate generation, the "goes wide" half: intent terms, problem phrases,
+  // audience niches, long-tail qualifiers, competitor-brand derivatives. Live autocomplete
+  // must CONFIRM each candidate before it earns a row — unverified model output is never
+  // inserted as demand.
+  if (aiEnabled() && snap) {
+    try {
+      const compListings = [];
+      for (const c of competitors) {
+        const cs = await q1(db, `select name, subtitle, description from app_snapshots where app_id = $1 order by captured_on desc limit 1`, [c.app_id]);
+        if (cs) compListings.push(cs);
+      }
+      const tracked = await q(
+        db,
+        `select k.term from tracked_keywords tk join keywords k on k.id = tk.keyword_id where tk.tracked_app_id = $1`,
+        [app.tracked_app_id],
+      );
+      const ideas = await generateKeywordCandidates({
+        app: snap,
+        competitors: compListings,
+        existing: [...new Set([...tracked.map((t) => t.term), ...candidates.keys()])],
+      });
+      const verified = [];
+      for (const term of ideas) {
+        if (outOfTime()) break;
+        try {
+          const suggestions = app.platform === "ios" ? await appleAutocomplete(term, countries[0]) : await playSuggest(term, countries[0]);
+          if (verifyCandidate(term, suggestions)) verified.push(term);
+        } catch {
+          /* one bad candidate must not abandon the rest */
+        }
+      }
+      addAll(verified, "ai");
+    } catch (err) {
+      jobWarnings.push(`discovery ai candidates ${app.name}: ${err.message}`);
+    }
+  }
 
   // Filter out other apps' names, which dominate autocomplete ("forge: daily mindset quotes").
   const knownApps = await q(db, `select name, developer_name, store_id from apps where platform = $1 limit 3000`, [app.platform]);
@@ -1165,6 +1229,49 @@ async function discoverFor(app, jobWarnings) {
       isMetadataSafe(term, { blocklist });
     }
   }
+
+  // AI feature #4 — relevance (03 §6). Batched big, cached on the row, never blocks a
+  // render (the column shows -- until this lands). Scores the backlog too, oldest debt
+  // first by discovered_at desc within tonight's 400-row cap; the rest resumes tomorrow.
+  if (aiEnabled() && snap) {
+    const unscored = await q(
+      db,
+      `select dk.id, k.term, k.popularity, k.popularity_estimate, k.popularity_source, k.difficulty
+         from discovered_keywords dk join keywords k on k.id = dk.keyword_id
+        where dk.tracked_app_id = $1 and dk.relevance is null and dk.dismissed = false
+        order by dk.discovered_at desc limit 400`,
+      [app.tracked_app_id],
+    );
+    for (let i = 0; i < unscored.length; i += 100) {
+      if (outOfTime()) {
+        jobWarnings.push(`relevance ${app.name}: stopped at ${i}/${unscored.length} — budget exhausted; resumes tomorrow.`);
+        break;
+      }
+      const batch = unscored.slice(i, i + 100);
+      try {
+        const scores = await scoreRelevance({ app: snap, terms: batch.map((b) => b.term) });
+        const byTerm = new Map(scores.map((s) => [s.term.toLowerCase().trim(), s]));
+        for (const row of batch) {
+          const s = byTerm.get(row.term.toLowerCase().trim());
+          if (!s) continue;
+          const opp = opportunity({
+            popularity: popularityEffective(row),
+            difficulty: row.difficulty,
+            rank: null,
+            relevance: s.relevance,
+          });
+          await db.query(
+            `update discovered_keywords set relevance = $2, relevance_reason = $3, opportunity = coalesce($4, opportunity) where id = $1`,
+            [row.id, s.relevance, String(s.reason).slice(0, 200), opp],
+          );
+        }
+      } catch (err) {
+        jobWarnings.push(`relevance ${app.name}: ${err.message}`);
+        break; // an API failure tonight would fail every batch — stop, resume tomorrow
+      }
+    }
+  }
+
   return inserted;
 }
 

@@ -9,6 +9,7 @@ import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { Panel, RankPill, ScoreCell, PopularityCell, CountryFlag, Chip, EmptyState, StalenessNote, EstimateLegend } from "@/components/ui";
 import { getCompetitors, getCompetitivePositions, getStaleness, getAiAnalyses } from "@/lib/queries";
 import { generateLandscape } from "@/app/actions/ai";
+import { trackTermsFromAnalysis } from "@/app/actions/keywords";
 import { aiEnabled } from "@/lib/ai";
 import { AiButton } from "@/components/AiButton";
 import { AddAppDialog } from "@/components/AddDialog";
@@ -235,15 +236,38 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
             {analyses.map((a: any) => (
               <Panel key={a.id} title={`Analysis · ${fmt.shortDate(a.created_at)}`} caption={`Model: ${a.model}`}>
                 <p className="mb-3 text-[12.5px] leading-relaxed">{a.posture}</p>
+                {Array.isArray(a.changes) && a.changes.length > 0 && (
+                  <div className="mb-3 rounded border border-[var(--border)] bg-[var(--bg-panel)] p-3">
+                    <p className="th mb-1.5">What changed since the previous run</p>
+                    <ul className="space-y-2">
+                      {(a.changes as { title: string; detail: string }[]).map((item) => (
+                        <li key={item.title} className="text-[12px]">
+                          <p className="font-medium">{item.title}</p>
+                          <p className="text-[var(--fg-muted)]">{item.detail}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <div className="grid gap-3 lg:grid-cols-3">
                   {([["opportunities", "Opportunities"], ["threats", "Threats"], ["strengths", "Strengths"]] as const).map(([key, label]) => (
                     <div key={key}>
                       <p className="th mb-1.5">{label}</p>
                       <ul className="space-y-2">
-                        {((a[key] ?? []) as { title: string; detail: string }[]).map((item) => (
+                        {((a[key] ?? []) as { title: string; detail: string; keywords?: string[] }[]).map((item) => (
                           <li key={item.title} className="text-[12px]">
                             <p className="font-medium">{item.title}</p>
                             <p className="text-[var(--fg-muted)]">{item.detail}</p>
+                            {key === "opportunities" && (item.keywords?.length ?? 0) > 0 && (
+                              <p className="mt-1">
+                                <span className="num text-[11px] text-[var(--fg-subtle)]">{item.keywords!.join(", ")} </span>
+                                <AiButton
+                                  label={`Track all (${item.keywords!.length})`}
+                                  pendingLabel="Tracking…"
+                                  action={trackTermsFromAnalysis.bind(null, active.tracked_app_id, item.keywords!)}
+                                />
+                              </p>
+                            )}
                           </li>
                         ))}
                       </ul>

@@ -132,6 +132,7 @@ export type DiscoveredRow = {
   country: string;
   source: string;
   relevance: number | null;
+  relevance_reason: string | null;
   opportunity: number | null;
   last_checked_at: string | null;
   popularity: number | null;
@@ -145,7 +146,7 @@ export type DiscoveredRow = {
 
 export async function listDiscovered(trackedAppId: string, appId: string): Promise<DiscoveredRow[]> {
   return q<DiscoveredRow>(
-    `select d.id, d.keyword_id, d.source, d.relevance, d.opportunity, d.last_checked_at,
+    `select d.id, d.keyword_id, d.source, d.relevance, d.relevance_reason, d.opportunity, d.last_checked_at,
             k.term, k.platform, k.country, k.popularity, k.popularity_estimate, k.difficulty,
             rc.rank, rc.found, rc.last_known_rank, null::int as crawl_depth
        from discovered_keywords d

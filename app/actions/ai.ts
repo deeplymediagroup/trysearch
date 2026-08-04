@@ -97,8 +97,9 @@ export async function generateLandscape(trackedAppId: string) {
   );
   if (!app) return { error: "App is not tracked by this workspace." };
 
-  const last = await q1<{ created_at: string }>(
-    `select created_at from ai_analyses where tracked_app_id = $1 order by created_at desc limit 1`,
+  const last = await q1<{ created_at: string; posture: string | null; opportunities: unknown; threats: unknown; strengths: unknown }>(
+    `select created_at, posture, opportunities, threats, strengths
+       from ai_analyses where tracked_app_id = $1 order by created_at desc limit 1`,
     [trackedAppId],
   );
   if (last) {
@@ -143,26 +144,45 @@ export async function generateLandscape(trackedAppId: string) {
       additionalProperties: false,
     },
   };
+  // Opportunities carry the exact keyword terms they are about, so the UI can offer Track-all.
+  const OPPORTUNITY_ITEM = {
+    type: "array",
+    items: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        detail: { type: "string" },
+        keywords: { type: "array", items: { type: "string" } },
+      },
+      required: ["title", "detail", "keywords"],
+      additionalProperties: false,
+    },
+  };
 
   try {
-    const result = await aiJson<{ posture: string; opportunities: any[]; threats: any[]; strengths: any[] }>({
+    const result = await aiJson<{ posture: string; opportunities: any[]; threats: any[]; strengths: any[]; changes: any[] }>({
       system:
-        "You are an ASO competitive strategist. Ground every claim in the data provided — cite keywords and ranks. Posture is a 2-3 sentence overall read. 3-5 items per list, each detail 1-2 sentences and actionable.",
+        "You are an ASO competitive strategist. Ground every claim in the data provided — cite keywords and ranks. Posture is a 2-3 sentence overall read. 3-5 items per list, each detail 1-2 sentences and actionable. " +
+        "Each opportunity's keywords array holds the exact keyword terms from the data it is about (may be empty; never invent terms). " +
+        "If a PREVIOUS ANALYSIS is provided, changes lists what moved since then — new threats, closed gaps, defended positions, grown clusters; if none is provided, changes is an empty array.",
       prompt:
         `MY APP: ${JSON.stringify(app)}\n\nCOMPETITORS: ${JSON.stringify(competitors)}\n\n` +
-        `COMPETITIVE POSITIONS (bucket: gap = they rank / we don't, winnable = low-difficulty gap, threat = they outrank us, lead = we outrank all):\n${JSON.stringify(positions)}`,
+        `COMPETITIVE POSITIONS (bucket: gap = they rank / we don't, winnable = low-difficulty gap, threat = they outrank us, lead = we outrank all):\n${JSON.stringify(positions)}` +
+        (last
+          ? `\n\nPREVIOUS ANALYSIS (${last.created_at}):\n${JSON.stringify({ posture: last.posture, opportunities: last.opportunities, threats: last.threats, strengths: last.strengths })}`
+          : ""),
       schema: {
         type: "object",
-        properties: { posture: { type: "string" }, opportunities: ITEM, threats: ITEM, strengths: ITEM },
-        required: ["posture", "opportunities", "threats", "strengths"],
+        properties: { posture: { type: "string" }, opportunities: OPPORTUNITY_ITEM, threats: ITEM, strengths: ITEM, changes: ITEM },
+        required: ["posture", "opportunities", "threats", "strengths", "changes"],
         additionalProperties: false,
       },
     });
 
     await q(
-      `insert into ai_analyses (tracked_app_id, kind, posture, opportunities, threats, strengths, model)
-       values ($1,'competitive_landscape',$2,$3,$4,$5,$6)`,
-      [trackedAppId, result.posture, JSON.stringify(result.opportunities), JSON.stringify(result.threats), JSON.stringify(result.strengths), AI_MODEL],
+      `insert into ai_analyses (tracked_app_id, kind, posture, opportunities, threats, strengths, changes, model)
+       values ($1,'competitive_landscape',$2,$3,$4,$5,$6,$7)`,
+      [trackedAppId, result.posture, JSON.stringify(result.opportunities), JSON.stringify(result.threats), JSON.stringify(result.strengths), JSON.stringify(result.changes), AI_MODEL],
     );
     revalidatePath("/competitors");
     return { ok: true };

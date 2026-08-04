@@ -248,6 +248,9 @@ create table if not exists discovered_keywords (
 create index if not exists discovered_open on discovered_keywords(tracked_app_id)
   where dismissed = false;
 
+-- The table predates the relevance reason (03 §6 asks for score + one-sentence why).
+alter table discovered_keywords add column if not exists relevance_reason text;
+
 -- Per-app, per-locale target keywords (max 3; slot 1 -> App Name, 2-3 -> Subtitle)
 create table if not exists target_keywords (
   id                bigserial primary key,
@@ -367,6 +370,9 @@ create table if not exists ai_analyses (
 );
 
 create index if not exists ai_analyses_recent on ai_analyses(tracked_app_id, created_at desc);
+
+-- Run-over-run diff: what changed since the previous analysis. [{title, detail}]
+alter table ai_analyses add column if not exists changes jsonb;
 
 
 -- ===========================================================================

@@ -98,7 +98,10 @@ export function DiscoveredTable({
         accessorFn: (r) => r.relevance ?? -1,
         // Relevance needs a language model, so it shows '--' until computed and never blocks a render.
         cell: ({ row }) => (
-          <span className="num text-[12px] text-[var(--fg-subtle)]" title="AI-assessed intent match. Optional feature — shows -- until computed.">
+          <span
+            className="num text-[12px] text-[var(--fg-subtle)]"
+            title={row.original.relevance_reason ?? "AI-assessed intent match. Optional feature — shows -- until computed."}
+          >
             {row.original.relevance == null ? fmt.DOUBLE_DASH : row.original.relevance}
           </span>
         ),

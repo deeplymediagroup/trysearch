@@ -140,9 +140,8 @@ crawl mutates these tables while you page, and an offset would silently repeat o
 
 ## What is not built yet
 
-- **App Store Connect and Play Console integrations.** No credentials are read, so `/performance` and `/engagement` render permanently-empty states and the Listing Manager falls back to the public snapshot instead of the hidden Keywords field.
-- **Keyword relevance scoring** — the one AI feature of the four still missing. The other three (competitive landscape, listing generation, AI review analysis) are built and gated behind an explicit button, off unless `ANTHROPIC_API_KEY` is set. `discovered_keywords.relevance` stays NULL until relevance scoring exists.
-- **Metrics for discovered keywords.** `rank_check` fetches SERPs for *tracked* keywords only — that queue is the entire crawl budget — so a discovered keyword has no rank, popularity or difficulty of its own. The "Auto-track ranked" switch is wired end to end but stays quiet until discoveries get a rank source.
+- **Play Console integration.** App Store Connect is wired (`asc_sync` fills `/performance` and `/engagement`), but the Play Console side — the only free source of *real* search terms — reads no credential yet.
+- **Metrics for discovered keywords.** `rank_check` fetches SERPs for *tracked* keywords only — that queue is the entire crawl budget — so a discovered keyword has no rank, popularity or difficulty of its own. The "Auto-track ranked" switch is wired end to end but stays quiet until discoveries get a rank source. (Relevance IS scored: the nightly discovery job batches every discovered keyword through the AI relevance pass, and AI-generated candidates are verified against live autocomplete before they earn a row.)
 - **The screenshot studio** — a large, self-contained canvas editor, unrelated to everything else.
 - **Android reviews.** Google exposes no free review feed, so `reviews` is iOS-only; the Play Console credential path would be needed.
 - **The CLI.** REST + MCP cover the automation needs.

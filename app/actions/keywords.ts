@@ -135,6 +135,23 @@ export async function addKeywords(trackedAppId: string, terms: string[], countri
   return { added, alreadyTracked, failed };
 }
 
+/**
+ * "Track all" on an AI opportunity cluster: the analysis names exact tracked-data terms,
+ * so this just re-uses addKeywords across the app's already-tracked markets.
+ */
+export async function trackTermsFromAnalysis(trackedAppId: string, terms: string[]): Promise<{ ok?: boolean; error?: string }> {
+  if (!terms.length) return { error: "This opportunity names no keywords." };
+  const ws = await workspaceId();
+  const rows = await q<{ country: string }>(
+    `select distinct k.country from tracked_keywords tk join keywords k on k.id = tk.keyword_id
+      where tk.tracked_app_id = $1 and tk.workspace_id = $2`,
+    [trackedAppId, ws],
+  );
+  await addKeywords(trackedAppId, terms, rows.length ? rows.map((r) => r.country) : ["us"]);
+  revalidatePath("/competitors");
+  return { ok: true };
+}
+
 /** Persisted so the matrix thresholds survive a refresh. */
 export async function setMatrixThresholds(trackedAppId: string, thresholds: { difficulty: number; popularity: number }) {
   const ws = await workspaceId();
