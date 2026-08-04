@@ -59,6 +59,9 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
           ASC_VENDOR_NUMBER: ${{ secrets.ASC_VENDOR_NUMBER }}
+          # App Manager key — only this role can read the hidden keywords field.
+          ASC_MANAGER_KEY_ID: ${{ secrets.ASC_MANAGER_KEY_ID }}
+          ASC_MANAGER_PRIVATE_KEY: ${{ secrets.ASC_MANAGER_PRIVATE_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # Play Console real search terms: inline service-account JSON + the bucket name
           # copied from Play Console -> Download reports -> "Copy Cloud Storage URI".
