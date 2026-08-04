@@ -253,3 +253,31 @@ export async function dismissCompetitorSuggestion(platform: "ios" | "android", s
   revalidatePath("/competitors");
   return { ok: true };
 }
+
+/** On-demand AI keyword scan of ONE competitor — same engine the weekly refresh uses. */
+export async function scanCompetitorNow(competitorTrackedAppId: string): Promise<{ ok?: boolean; error?: string }> {
+  const ws = await workspaceId();
+  const comp = await q1<{ id: string; app_id: string; competitor_of: string }>(
+    `select id, app_id, competitor_of from tracked_apps where id = $1 and workspace_id = $2 and role = 'competitor'`,
+    [competitorTrackedAppId, ws],
+  );
+  if (!comp) return { error: "No such competitor." };
+  const cMeta = await q1<{ name: string; platform: string; store_id: string }>(`select name, platform, store_id from apps where id = $1`, [comp.app_id]);
+  const own = await q1<{ id: string; name: string }>(
+    `select ta.id, a.name from tracked_apps ta join apps a on a.id = ta.app_id where ta.id = $1`,
+    [comp.competitor_of],
+  );
+  if (!cMeta || !own) return { error: "Competitor or parent app missing." };
+  const { scanCompetitor } = await import("@/lib/competitor-scan.mjs");
+  const dbq = (text: string, params: unknown[] = []) => q(text, params as never[]);
+  const res = await scanCompetitor(dbq, {
+    workspaceId: ws,
+    ownTrackedAppId: own.id,
+    ownAppName: own.name,
+    competitor: { ...cMeta, app_id: comp.app_id },
+    countries: ["us"],
+  });
+  revalidatePath("/keywords");
+  revalidatePath("/competitors");
+  return { ok: true, ...(res as unknown as Record<string, unknown>) };
+}

@@ -47,6 +47,8 @@ export function Panel({
 
 /**
  * KpiTile — must render a null value as an em dash, never 0.
+ * Big number on top with the delta beside it, quiet label underneath. Meant to sit inside
+ * KpiStrip's connected row.
  */
 export function KpiTile({
   label,
@@ -63,16 +65,23 @@ export function KpiTile({
 }) {
   const display = value == null || value === "" ? fmt.EM_DASH : String(value);
   return (
-    <div className="panel p-3.5">
-      <div className="th">{label}</div>
-      <div className="mt-1.5 flex items-baseline gap-2">
-        <span className="num text-[26px] leading-none font-semibold tabular-nums">{display}</span>
+    <div className="min-w-0 flex-1 px-4 py-3.5">
+      <div className="flex items-baseline gap-1.5">
+        <span className="truncate text-[22px] font-semibold leading-none tracking-tight tabular-nums">{display}</span>
         {suffix && <span className="text-[12px] text-[var(--fg-subtle)]">{suffix}</span>}
         {delta !== undefined && <DeltaBadge value={delta} />}
       </div>
-      {subLabel && <div className="mt-1.5 text-[11px] text-[var(--fg-subtle)]">{subLabel}</div>}
+      <div className="mt-1 truncate text-[12px] text-[var(--fg-subtle)]" title={subLabel ? `${label} — ${subLabel}` : label}>
+        {label}
+        {subLabel && <span className="hidden xl:inline"> · {subLabel}</span>}
+      </div>
     </div>
   );
+}
+
+/** The connected KPI row: one bordered container, hairline dividers between tiles. */
+export function KpiStrip({ children }: { children: React.ReactNode }) {
+  return <div className="panel flex flex-wrap divide-x divide-[var(--border)] overflow-hidden p-0">{children}</div>;
 }
 
 /**

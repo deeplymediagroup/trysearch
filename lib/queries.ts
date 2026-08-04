@@ -23,12 +23,13 @@ export type TrackedApp = {
   rating_count: number | null;
   keyword_count: number;
   auto_track_ranked: boolean;
+  product_id: string | null;
 };
 
 /** Every app the workspace tracks, own apps first. Drives the app switcher. */
 export async function listTrackedApps(): Promise<TrackedApp[]> {
   return q<TrackedApp>(
-    `select ta.id as tracked_app_id, ta.app_id, ta.workspace_id, ta.role, ta.device, ta.auto_track_ranked,
+    `select ta.id as tracked_app_id, ta.app_id, ta.workspace_id, ta.role, ta.device, ta.auto_track_ranked, ta.product_id,
             a.platform, a.store_id, a.name, a.developer_name, a.icon_url, a.version,
             s.rating_average, s.rating_count,
             (select count(*)::int from tracked_keywords tk where tk.tracked_app_id = ta.id) as keyword_count

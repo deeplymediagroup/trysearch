@@ -7,7 +7,11 @@ import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { Panel, Chip, EmptyState, CountryFlag, ScoreCell, PopularityCell, RankPill, DeltaBadge } from "@/components/ui";
 import { RankHistoryChart } from "@/components/Charts";
 import { getKeywordDetail } from "@/lib/queries";
+import { keywordSeasonality } from "@/lib/stores/gtrends.mjs";
+import { q1 } from "@/lib/db";
 import * as fmt from "@/lib/format";
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export const metadata = { title: "Keyword — trysearch" };
 export const dynamic = "force-dynamic";
@@ -28,6 +32,10 @@ export default async function KeywordDetailPage({ params }: { params: Promise<{ 
   }
 
   const { kw, history, serp } = detail;
+  // Real 5-year Google Trends seasonality, cached 7 days. Null = Trends had no signal.
+  const seasonality = (await keywordSeasonality(q1, kw.term, kw.country.toUpperCase()).catch(() => null)) as
+    | { index: number[]; peaks: string[]; troughs: string[]; seasonal: boolean; weeks: number }
+    | null;
   const beatable = (kw.difficulty_parts as any)?.beatable_value === true;
   const beatableReason = (kw.difficulty_parts as any)?.beatable?.reason as string | undefined;
 
@@ -78,6 +86,54 @@ export default async function KeywordDetailPage({ params }: { params: Promise<{ 
         <div className="xl:col-span-2">
           <Panel title="30-day rank trend" caption="You and every tracked competitor on this keyword. Gaps are unmeasured days.">
             <RankHistoryChart series={[...byApp.values()]} annotations={[]} />
+          </Panel>
+        </div>
+
+        <div className="xl:col-span-3">
+          <Panel
+            title="Seasonality"
+            caption={
+              seasonality
+                ? `Google Trends, ${Math.round(seasonality.weeks / 52)} years of weekly interest. 100 = this term's own average.`
+                : "Google Trends had no reliable signal for this term (too little search volume)."
+            }
+          >
+            {seasonality ? (
+              <div>
+                <div className="flex items-end gap-1.5">
+                  {seasonality.index.map((v, i) => (
+                    <div key={MONTHS[i]} className="flex flex-1 flex-col items-center gap-1" title={`${MONTHS[i]}: ${v}`}>
+                      <div className="flex h-20 w-full items-end">
+                        <div
+                          className="w-full rounded-t-[3px]"
+                          style={{
+                            height: `${Math.max(4, Math.min(100, (v / Math.max(...seasonality.index)) * 100))}%`,
+                            background: v >= 120 ? "var(--up)" : v <= 80 ? "var(--down)" : "var(--border-strong)",
+                          }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-[var(--fg-subtle)]">{MONTHS[i]}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-[var(--fg-muted)]">
+                  {seasonality.seasonal ? (
+                    <>
+                      <Chip tone="warn">Seasonal</Chip>
+                      {seasonality.peaks.length > 0 && <span>Peaks in {seasonality.peaks.join(", ")}.</span>}
+                      {seasonality.troughs.length > 0 && <span>Quietest in {seasonality.troughs.join(", ")}.</span>}
+                    </>
+                  ) : (
+                    <>
+                      <Chip>Steady</Chip>
+                      <span>Demand is roughly flat across the year.</span>
+                    </>
+                  )}
+                </p>
+              </div>
+            ) : (
+              <p className="text-[12px] text-[var(--fg-subtle)]">{fmt.EM_DASH}</p>
+            )}
           </Panel>
         </div>
 

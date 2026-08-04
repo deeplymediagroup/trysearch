@@ -807,6 +807,91 @@ export const OPS: Record<string, Op> = {
     },
   },
 
+  link_store_version: {
+    description:
+      "Link an iOS and an Android tracked app as ONE product (same app, two stores). They then present together in the console and the Both-stores keyword view.",
+    schema: {
+      type: "object",
+      properties: {
+        ios_tracked_app_id: { type: "string" },
+        android_tracked_app_id: { type: "string" },
+      },
+      required: ["ios_tracked_app_id", "android_tracked_app_id"],
+    },
+    write: true,
+    async run({ ios_tracked_app_id, android_tracked_app_id }) {
+      const ws = await workspaceId();
+      const pair = await q<{ id: string; platform: string }>(
+        `select ta.id, a.platform from tracked_apps ta join apps a on a.id = ta.app_id
+          where ta.id = any($1::uuid[]) and ta.workspace_id = $2 and ta.role = 'own'`,
+        [[String(ios_tracked_app_id), String(android_tracked_app_id)], ws],
+      );
+      if (pair.length !== 2 || new Set(pair.map((p) => p.platform)).size !== 2) {
+        throw new ApiError("invalid", "Need one of YOUR iOS apps and one of YOUR Android apps.", 400);
+      }
+      const linked = await q1<{ product_id: string }>(
+        `update tracked_apps set product_id = gen_random_uuid() where id = $1 returning product_id`,
+        [pair[0].id],
+      );
+      await q(`update tracked_apps set product_id = $2 where id = $1`, [pair[1].id, linked!.product_id]);
+      return { product_id: linked!.product_id, linked: pair.map((p) => p.id) };
+    },
+  },
+
+  scan_competitor: {
+    description:
+      "Run the AI keyword scan on one competitor NOW (normally weekly): reads its live listing, generates the terms it is optimized for, verifies each against live autocomplete, and files them as discoveries.",
+    schema: {
+      type: "object",
+      properties: { competitor_tracked_app_id: { type: "string", description: "The competitor's tracked_app_id (see list_competitors)." } },
+      required: ["competitor_tracked_app_id"],
+    },
+    write: true,
+    async run({ competitor_tracked_app_id }) {
+      const ws = await workspaceId();
+      const comp = await q1<{ id: string; app_id: string; competitor_of: string }>(
+        `select id, app_id, competitor_of from tracked_apps where id = $1 and workspace_id = $2 and role = 'competitor'`,
+        [String(competitor_tracked_app_id), ws],
+      );
+      if (!comp) throw new ApiError("not_found", "No such competitor.", 404);
+      const cMeta = await q1<{ name: string; platform: string; store_id: string }>(
+        `select name, platform, store_id from apps where id = $1`,
+        [comp.app_id],
+      );
+      const own = await q1<{ id: string; name: string }>(
+        `select ta.id, a.name from tracked_apps ta join apps a on a.id = ta.app_id where ta.id = $1`,
+        [comp.competitor_of],
+      );
+      if (!cMeta || !own) throw new ApiError("not_found", "Competitor or parent app missing.", 404);
+      const { scanCompetitor } = await import("@/lib/competitor-scan.mjs");
+      // crawl's dbq returns the rows array directly; scanCompetitor expects the same shape.
+      const dbq = (text: string, params: unknown[] = []) => q(text, params as never[]);
+      return await scanCompetitor(dbq, {
+        workspaceId: ws,
+        ownTrackedAppId: own.id,
+        ownAppName: own.name,
+        competitor: { ...cMeta, app_id: comp.app_id },
+        countries: ["us"],
+      });
+    },
+  },
+
+  analyze_competitors: {
+    description:
+      "Generate (or refresh) the AI competitive landscape analysis for one of your own apps — posture, opportunity clusters with Track-all keyword lists, threats, and a diff vs the previous run. One per app per 7 days.",
+    schema: {
+      type: "object",
+      properties: { tracked_app_id: { type: "string", description: "Omit for the primary app." } },
+    },
+    write: true,
+    async run({ tracked_app_id }) {
+      const ws = await workspaceId();
+      const app = await resolveTrackedApp(ws, tracked_app_id as string | undefined);
+      const { generateLandscape } = await import("@/app/actions/ai");
+      return await generateLandscape(app.id);
+    },
+  },
+
   untrack_app: {
     description:
       "Stop tracking an app or competitor by tracked_app_id. Cascades to its keywords, discoveries, competitors and drafts; shared store measurements are kept.",

@@ -888,3 +888,8 @@ create table if not exists discovery_runs (
   finished_at    timestamptz
 );
 create index if not exists discovery_runs_by_app on discovery_runs (tracked_app_id, started_at desc);
+
+-- Product identity: an iOS and Android tracked app that are the SAME product share a
+-- product_id (2026-08). Pairing is explicit via the link_store_version op or automatic on
+-- name match; null = unpaired.
+alter table tracked_apps add column if not exists product_id uuid;

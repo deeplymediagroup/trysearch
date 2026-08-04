@@ -28,6 +28,10 @@
   --primary: #171717;
   --primary-fg: #fafafa;
 
+  /* metric charts are blue — the red accent stays reserved for brand/CTA */
+  --chart: #3b82f6;
+  --chart-soft: rgba(59, 130, 246, 0.15);
+
   /* semantic: deltas and rank brackets — darker shades for contrast on white */
   --up: #16a34a;
   --down: #dc2626;

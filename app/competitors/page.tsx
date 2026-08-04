@@ -9,7 +9,7 @@ import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { Panel, RankPill, ScoreCell, PopularityCell, CountryFlag, Chip, EmptyState, StalenessNote, EstimateLegend } from "@/components/ui";
 import { getCompetitors, getCompetitivePositions, getStaleness, getAiAnalyses, getSuggestedCompetitors, getCompareData } from "@/lib/queries";
 import { generateLandscape } from "@/app/actions/ai";
-import { addSuggestedCompetitor, addAllSuggestedCompetitors, dismissCompetitorSuggestion } from "@/app/actions/apps";
+import { addSuggestedCompetitor, addAllSuggestedCompetitors, dismissCompetitorSuggestion, scanCompetitorNow } from "@/app/actions/apps";
 import { trackTermsFromAnalysis } from "@/app/actions/keywords";
 import { aiEnabled } from "@/lib/ai";
 import { AiButton } from "@/components/AiButton";
@@ -246,6 +246,9 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
                         </td>
                         <td className="px-3 py-2 text-right">
                           <span className="inline-flex items-center gap-2">
+                            {aiEnabled() && (
+                              <AiButton label="Scan (AI)" pendingLabel="Scanning…" action={scanCompetitorNow.bind(null, c.tracked_app_id)} />
+                            )}
                             <Link href={`/competitors?compare=${c.app_id}`} className="text-[12px] text-[var(--fg-muted)] hover:text-[var(--fg)]">Compare</Link>
                             <RemoveCompetitorButton trackedAppId={c.tracked_app_id} name={c.name} />
                           </span>

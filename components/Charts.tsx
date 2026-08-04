@@ -72,7 +72,7 @@ export function VisibilityChart({ data }: { data: { metric_on: string; visibilit
           <YAxis domain={[0, 100]} {...AXIS} tickLine={false} axisLine={false} />
           <Tooltip contentStyle={tooltipStyle} formatter={(v) => [v as number, "Visibility (0–100)"]} />
           {/* connectNulls={false}: a day we did not measure must show as a gap, not a straight line. */}
-          <Area type="monotone" dataKey="visibility" stroke="var(--accent)" fill="var(--accent-soft)" strokeWidth={1.6} connectNulls={false} dot={false} />
+          <Area type="monotone" dataKey="visibility" stroke="var(--chart)" fill="var(--chart-soft)" strokeWidth={1.6} connectNulls={false} dot={false} />
         </AreaChart>
       </ResponsiveContainer>
       <Caption>Popularity-weighted rank reach, last 30 days. 0–100.</Caption>
@@ -91,7 +91,7 @@ export function ShareOfVoiceChart({ data }: { data: { metric_on: string; share_o
           <XAxis dataKey="date" {...AXIS} tickLine={false} axisLine={false} />
           <YAxis {...AXIS} tickLine={false} axisLine={false} unit="%" />
           <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v}%`, "Share of voice"]} />
-          <Line type="monotone" dataKey="sov" stroke="var(--up)" strokeWidth={1.6} connectNulls={false} dot={false} />
+          <Line type="monotone" dataKey="sov" stroke="var(--chart)" strokeWidth={1.6} connectNulls={false} dot={false} />
         </LineChart>
       </ResponsiveContainer>
       <Caption>% of tracked non-branded demand captured, last 30 days.</Caption>
@@ -128,29 +128,31 @@ export function RankDistributionPanel({ data }: { data: Record<string, unknown>[
   }));
   return (
     <>
-      <div className="mb-2 flex items-center gap-1.5">
-        {([
-          ["Keywords", false],
-          ["Popularity-weighted", true],
-        ] as const).map(([label, w]) => (
-          <button
-            key={label}
-            type="button"
-            onClick={() => setWeighted(w)}
-            aria-pressed={weighted === w}
-            className={`rounded-[6px] px-2 py-0.5 text-[11px] ${weighted === w ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="mb-2 flex items-center justify-end gap-2">
         <button
           type="button"
           onClick={() => setStarredOnly((s) => !s)}
           aria-pressed={starredOnly}
-          className={`ml-2 rounded-[6px] px-2 py-0.5 text-[11px] ${starredOnly ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
+          className={`h-7 rounded-[8px] border px-2.5 text-[12px] ${starredOnly ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
         >
-          ★ Starred only
+          ☆ Starred
         </button>
+        <span className="inline-flex items-center gap-0.5 rounded-[9px] bg-[var(--bg-hover)] p-0.5">
+          {([
+            ["Trend", false],
+            ["Weighted", true],
+          ] as const).map(([label, w]) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setWeighted(w)}
+              aria-pressed={weighted === w}
+              className={`rounded-[7px] px-2.5 py-1 text-[12px] font-medium ${weighted === w ? "border border-[var(--border)] bg-[var(--bg)] text-[var(--fg)] shadow-sm" : "text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </span>
       </div>
       <BracketAreaChart data={rows} />
       {weighted && !starredOnly && <Caption>Stacks sum the popularity of the keywords in each bracket instead of counting them.</Caption>}

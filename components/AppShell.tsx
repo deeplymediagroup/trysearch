@@ -33,6 +33,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { listTrackedApps, type TrackedApp } from "@/lib/queries";
+import { currentWorkspace } from "@/lib/db";
 import { PlatformChip } from "./ui";
 import { AddAppDialog } from "./AddDialog";
 
@@ -51,7 +52,7 @@ const NAV: NavGroup[] = [
     ],
   },
   {
-    header: "Track",
+    header: "Monitor",
     items: [
       { label: "Keywords", href: "/keywords", icon: Search },
       { label: "Rankings", href: "/rankings", icon: TrendingUp },
@@ -62,7 +63,7 @@ const NAV: NavGroup[] = [
     ],
   },
   {
-    header: "Tools",
+    header: "Optimize",
     items: [
       { label: "Listing Manager", href: "/listing-manager", icon: FileText },
       { label: "Listing Helper", href: "/listing-helper", badge: "NEW", icon: Sparkles },
@@ -102,8 +103,9 @@ export async function getActiveApp(): Promise<{ apps: TrackedApp[]; active: Trac
 }
 
 export async function AppShell({ children, current }: { children: React.ReactNode; current: string }) {
-  const { apps, active } = await getActiveApp();
+  const [{ apps, active }, workspace] = await Promise.all([getActiveApp(), currentWorkspace().catch(() => null)]);
   const own = apps.filter((a) => a.role === "own");
+  const wsName = workspace?.name ?? "Workspace";
 
   return (
     <div className="flex min-h-dvh">
@@ -131,24 +133,25 @@ export async function AppShell({ children, current }: { children: React.ReactNod
 
             <div className="absolute left-0 right-0 top-full z-40 mt-1 rounded-[10px] border border-[var(--border)] bg-[var(--bg-elevated)] p-1 shadow-lg">
               {own.length === 0 && <p className="px-2 py-2 text-[11px] text-[var(--fg-subtle)]">No apps tracked yet.</p>}
-              {["ios", "android"].map((platform) => {
-                const group = own.filter((a) => a.platform === platform);
-                if (!group.length) return null;
-                return (
-                  <div key={platform}>
-                    <p className="px-2 pt-1.5 pb-1 text-[11px] text-[var(--fg-subtle)]">{platform === "ios" ? "App Store" : "Google Play"}</p>
-                    {group.map((a) => (
-                      <Link
-                        key={a.tracked_app_id}
-                        href={`/dashboard?app=${a.tracked_app_id}`}
-                        className={`flex items-center gap-2 rounded-[7px] px-2 py-1.5 text-[13px] hover:bg-[var(--bg-hover)] ${a.tracked_app_id === active?.tracked_app_id ? "font-medium text-[var(--fg)]" : "text-[var(--fg-muted)]"}`}
-                      >
-                        <span className="truncate">{a.name}</span>
-                      </Link>
-                    ))}
-                  </div>
-                );
-              })}
+              {/* One row per PRODUCT: a linked iOS+Android pair collapses to a single entry. */}
+              {own
+                .filter((a) => !(a.product_id && a.platform === "android" && own.some((b) => b.product_id === a.product_id && b.platform === "ios")))
+                .map((a) => {
+                  const pair = a.product_id ? own.find((b) => b.product_id === a.product_id && b.tracked_app_id !== a.tracked_app_id) : null;
+                  return (
+                    <Link
+                      key={a.tracked_app_id}
+                      href={`/dashboard?app=${a.tracked_app_id}`}
+                      className={`flex items-center gap-2 rounded-[7px] px-2 py-1.5 text-[13px] hover:bg-[var(--bg-hover)] ${a.tracked_app_id === active?.tracked_app_id ? "font-medium text-[var(--fg)]" : "text-[var(--fg-muted)]"}`}
+                    >
+                      <span className="truncate">{a.name}</span>
+                      <span className="ml-auto flex shrink-0 gap-1 text-[10px] text-[var(--fg-subtle)]">
+                        {a.platform === "ios" || pair ? <span></span> : null}
+                        {a.platform === "android" || pair ? <span>▶</span> : null}
+                      </span>
+                    </Link>
+                  );
+                })}
               <div className="mt-1 border-t border-[var(--border)] px-2 py-2">
                 <AddAppDialog
                   triggerClass="text-[13px] text-[var(--fg-muted)] hover:text-[var(--fg)]"
@@ -162,8 +165,11 @@ export async function AppShell({ children, current }: { children: React.ReactNod
           {NAV.map((group) => (
             <div key={group.header ?? "root"}>
               {group.header && (
-                <p className="px-2 pb-1.5 pt-5 text-[12px] text-[var(--fg-subtle)]">
+                <p className="flex items-center justify-between px-2 pb-1.5 pt-5 text-[12px] text-[var(--fg-subtle)]">
                   {group.header}
+                  {(group.header === "Optimize" || group.header === "Your App") && (
+                    <ChevronsUpDown aria-hidden className="h-3 w-3 opacity-60" />
+                  )}
                 </p>
               )}
               <ul className="space-y-0.5">
@@ -203,9 +209,12 @@ export async function AppShell({ children, current }: { children: React.ReactNod
             <span className="flex-1">What&apos;s New</span>
             <span aria-hidden className="h-2 w-2 rounded-full bg-[var(--accent)]" />
           </Link>
-          <p className="mt-1.5 px-2 text-[10px] leading-relaxed text-[var(--fg-subtle)]">
-            All data from free public App Store and Google Play endpoints. No paid vendor.
-          </p>
+          <div className="mt-1 flex items-center gap-2.5 px-2 py-1.5" title="All data from free public store endpoints — no paid vendor.">
+            <span aria-hidden className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--up)] text-[12px] font-semibold text-white">
+              {wsName[0]?.toUpperCase() ?? "W"}
+            </span>
+            <span className="truncate text-[13px] font-medium">{wsName}</span>
+          </div>
         </div>
       </aside>
 

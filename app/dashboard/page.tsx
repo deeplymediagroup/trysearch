@@ -6,7 +6,7 @@
  */
 import Link from "next/link";
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
-import { KpiTile, Panel, RankPill, DeltaBadge, Sparkline, CountryFlag, EmptyState, StalenessNote, EstimateLegend, Chip } from "@/components/ui";
+import { KpiTile, KpiStrip, Panel, RankPill, DeltaBadge, Sparkline, CountryFlag, EmptyState, StalenessNote, EstimateLegend, Chip } from "@/components/ui";
 import { VisibilityChart, ShareOfVoiceChart, RankDistributionPanel } from "@/components/Charts";
 import { AchievementsGrid } from "@/components/Achievements";
 import { getActiveAppData } from "./data";
@@ -42,16 +42,20 @@ export default async function DashboardPage() {
         subtitle={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>{d.keywordCount} keywords</span>
-            <span>★ {fmt.rating(active.rating_average)} ({fmt.count(active.rating_count)})</span>
-            {active.version && <span>v{active.version}</span>}
             <StalenessNote date={d.staleness} />
+          </span>
+        }
+        actions={
+          <span className="flex items-center gap-3 text-[13px] text-[var(--fg-subtle)]">
+            <span><span className="text-[var(--warn)]">★</span> {fmt.rating(active.rating_average)} <span className="text-[var(--fg-subtle)]">{fmt.count(active.rating_count)} ratings</span></span>
+            {active.version && <span className="num">v{active.version}</span>}
           </span>
         }
       />
 
       <div className="space-y-4 p-6">
-        {/* KPI strip */}
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        {/* KPI strip — one connected segmented row */}
+        <KpiStrip>
           <KpiTile label="Visibility" value={d.latest?.visibility == null ? null : fmt.score(Number(d.latest.visibility))} delta={d.visibilityDelta} subLabel="Popularity-weighted reach" />
           <KpiTile
             label="Share of voice"
@@ -62,7 +66,7 @@ export default async function DashboardPage() {
           <KpiTile label="Best rank" value={d.latest?.best_rank ? `#${d.latest.best_rank}` : null} subLabel={(d.latest as any)?.best_rank_term ?? undefined} />
           <KpiTile label="Top 10" value={d.latest?.top10_count ?? null} subLabel="keywords ranked ≤10" />
           <KpiTile label="Movers (7d)" value={`↑${d.latest?.movers_up ?? 0} ↓${d.latest?.movers_down ?? 0}`} subLabel="up / down" />
-        </div>
+        </KpiStrip>
 
         <EstimateLegend extra="Visibility and share of voice are computed from tracked keywords only." />
 
