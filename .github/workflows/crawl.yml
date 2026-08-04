@@ -60,5 +60,9 @@ jobs:
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
           ASC_VENDOR_NUMBER: ${{ secrets.ASC_VENDOR_NUMBER }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Play Console real search terms: inline service-account JSON + the bucket name
+          # copied from Play Console -> Download reports -> "Copy Cloud Storage URI".
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          PLAY_GCS_BUCKET: ${{ secrets.PLAY_GCS_BUCKET }}
 
 

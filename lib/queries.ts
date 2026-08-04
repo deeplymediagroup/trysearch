@@ -263,6 +263,67 @@ export async function getCompetitors(trackedAppId: string) {
   );
 }
 
+export type SuggestedCompetitor = {
+  platform: "ios" | "android";
+  store_id: string;
+  name: string | null;
+  icon_url: string | null;
+  developer_name: string | null;
+  overlap: number | null; // tracked keywords it ranks top-30 for; null when the reason is the similar-apps shelf
+  reason: "serp" | "similar";
+};
+
+/**
+ * Suggested competitors (Workstream E1) — computed from data we already paid for:
+ *   1. apps ranking in the top 30 on ≥3 of this app's tracked keywords (latest SERPs), and
+ *   2. the iOS "similar apps" shelf from the latest own-app snapshot's raw SSR payload.
+ * Excludes anything already tracked in the workspace and anything dismissed.
+ */
+export async function getSuggestedCompetitors(workspaceId: string, active: { tracked_app_id: string; app_id: string; platform: string }): Promise<SuggestedCompetitor[]> {
+  const serp = await q<SuggestedCompetitor>(
+    `select a.platform, a.store_id, a.name, a.icon_url, a.developer_name,
+            count(distinct r.keyword_id)::int as overlap, 'serp' as reason
+       from serp_results r
+       join apps a on a.id = r.app_id
+      where r.keyword_id in (select keyword_id from tracked_keywords where tracked_app_id = $1)
+        and r.position <= 30
+        and r.captured_on > current_date - 8
+        and a.id <> $2
+        and not exists (select 1 from tracked_apps ta where ta.workspace_id = $3 and ta.app_id = a.id and ta.is_active)
+        and not exists (select 1 from competitor_suggestion_dismissals d
+                         where d.workspace_id = $3 and d.platform = a.platform and d.store_id = a.store_id)
+      group by a.platform, a.store_id, a.name, a.icon_url, a.developer_name
+     having count(distinct r.keyword_id) >= 3
+      order by overlap desc
+      limit 8`,
+    [active.tracked_app_id, active.app_id, workspaceId],
+  );
+
+  // iOS similar-apps shelf, already captured in the snapshot's raw payload — zero fetches.
+  let similar: SuggestedCompetitor[] = [];
+  if (active.platform === "ios") {
+    similar = await q<SuggestedCompetitor>(
+      `select distinct on (sa->>'store_id')
+              'ios'::text as platform, sa->>'store_id' as store_id, sa->>'name' as name,
+              null::text as icon_url, null::text as developer_name, null::int as overlap,
+              'similar' as reason
+         from (select raw from app_snapshots where app_id = $1 order by captured_on desc limit 1) s,
+              jsonb_array_elements(coalesce(s.raw->'ssr'->'similar_apps', '[]'::jsonb)) sa
+        where sa->>'store_id' <> ''
+          and not exists (select 1 from tracked_apps ta join apps a on a.id = ta.app_id
+                           where ta.workspace_id = $2 and ta.is_active and a.platform = 'ios' and a.store_id = sa->>'store_id')
+          and not exists (select 1 from competitor_suggestion_dismissals d
+                           where d.workspace_id = $2 and d.platform = 'ios' and d.store_id = sa->>'store_id')
+        limit 6`,
+      [active.app_id, workspaceId],
+    );
+  }
+
+  // SERP-overlap evidence first (it is quantified); dedupe by store id.
+  const seen = new Set(serp.map((s) => s.store_id));
+  return [...serp, ...similar.filter((s) => !seen.has(s.store_id))].slice(0, 10);
+}
+
 export async function getCompetitivePositions(trackedAppId: string) {
   return q(
     `select cp.bucket, cp.their_rank, cp.our_rank, cp.opportunity,
@@ -420,4 +481,131 @@ export async function getCountries(trackedAppId: string): Promise<string[]> {
     [trackedAppId],
   );
   return rows.map((r) => r.country);
+}
+
+/** Draft history for the Listing Helper — newest first, the head row is "current". */
+export async function getListingDrafts(trackedAppId: string, limit = 8) {
+  return q(
+    `select id, locale, app_name, subtitle, keywords_field, promotional_text, description, model, created_at
+       from listing_drafts where tracked_app_id = $1
+      order by created_at desc limit $2`,
+    [trackedAppId, limit],
+  );
+}
+
+/** The (store, country, category, chart) combos the charts job has snapshotted. */
+export async function getChartCombos() {
+  return q<{ platform: string; country: string; category: string; chart: string }>(
+    `select distinct platform, country, category, chart from chart_entries order by platform, country, category, chart`,
+  );
+}
+
+export type ChartRow = {
+  rank: number;
+  prev_rank: number | null;
+  app_id: string;
+  store_id: string;
+  name: string;
+  developer_name: string | null;
+  icon_url: string | null;
+  tracked: boolean;
+  trend: (number | null)[];
+};
+
+/**
+ * One chart's latest snapshot with day-over-day movement and a 30-day mini history
+ * (Workstream H). `prev_rank` null = new entry or no snapshot yesterday — the UI shows
+ * "new", never a fake delta.
+ */
+export async function getChartSnapshot(platform: string, country: string, category: string, chart: string): Promise<{ date: string | null; rows: ChartRow[]; dropped: { name: string; prev_rank: number }[] }> {
+  const latest = await q1<{ d: string }>(
+    `select max(captured_on)::text as d from chart_entries
+      where platform = $1 and country = $2 and category = $3 and chart = $4`,
+    [platform, country, category, chart],
+  );
+  if (!latest?.d) return { date: null, rows: [], dropped: [] };
+
+  const rows = await q<ChartRow>(
+    `select ce.rank, prev.rank as prev_rank, a.id as app_id, a.store_id, a.name, a.developer_name, a.icon_url,
+            exists (select 1 from tracked_apps ta where ta.app_id = a.id and ta.is_active) as tracked,
+            coalesce((
+              select json_agg(x.rank order by x.captured_on)
+                from (select captured_on, rank from chart_entries
+                       where platform = $1 and country = $2 and category = $3 and chart = $4
+                         and app_id = ce.app_id and captured_on > $5::date - 30
+                       order by captured_on) x
+            ), '[]'::json) as trend
+       from chart_entries ce
+       join apps a on a.id = ce.app_id
+       left join chart_entries prev
+         on prev.platform = ce.platform and prev.country = ce.country and prev.category = ce.category
+        and prev.chart = ce.chart and prev.app_id = ce.app_id and prev.captured_on = $5::date - 1
+      where ce.platform = $1 and ce.country = $2 and ce.category = $3 and ce.chart = $4
+        and ce.captured_on = $5
+      order by ce.rank`,
+    [platform, country, category, chart, latest.d],
+  );
+
+  const dropped = await q<{ name: string; prev_rank: number }>(
+    `select a.name, prev.rank as prev_rank
+       from chart_entries prev
+       join apps a on a.id = prev.app_id
+      where prev.platform = $1 and prev.country = $2 and prev.category = $3 and prev.chart = $4
+        and prev.captured_on = $5::date - 1
+        and not exists (select 1 from chart_entries ce
+                         where ce.platform = $1 and ce.country = $2 and ce.category = $3 and ce.chart = $4
+                           and ce.captured_on = $5 and ce.app_id = prev.app_id)
+      order by prev.rank
+      limit 10`,
+    [platform, country, category, chart, latest.d],
+  );
+
+  return { date: latest.d, rows, dropped };
+}
+
+/** Research projects with their keyword counts (Workstream J). */
+export async function listResearchProjects(workspaceId: string) {
+  return q<{ id: string; name: string; created_at: string; keyword_count: number }>(
+    `select p.id, p.name, p.created_at,
+            (select count(*)::int from research_keywords rk where rk.project_id = p.id) as keyword_count
+       from research_projects p
+      where p.workspace_id = $1
+      order by p.created_at desc`,
+    [workspaceId],
+  );
+}
+
+export async function getResearchKeywords(projectId: string) {
+  return q<{ id: string; term: string; platform: string; country: string; popularity: number | null; popularity_estimate: number | null; difficulty: number | null; metrics_updated_at: string | null }>(
+    `select rk.id, k.term, k.platform, k.country, k.popularity, k.popularity_estimate, k.difficulty, k.metrics_updated_at
+       from research_keywords rk
+       join keywords k on k.id = rk.keyword_id
+      where rk.project_id = $1
+      order by coalesce(k.popularity_estimate, k.popularity, -1) desc, k.term`,
+    [projectId],
+  );
+}
+
+/**
+ * REAL Play search terms (Workstream I) — measured queries with conversion data from the
+ * Play Console bucket, aggregated over the trailing 60 days. Empty until play_sync has
+ * credentials. 'Other' is Google's low-volume rollup, kept and labeled.
+ */
+export async function getPlaySearchTerms(packageName: string, limit = 20) {
+  return q<{ search_term: string; visitors: number | null; acquisitions: number | null; cvr: number | null; tracked: boolean }>(
+    `select t.search_term,
+            sum(t.visitors)::int as visitors,
+            sum(t.acquisitions)::int as acquisitions,
+            case when sum(t.visitors) > 0 then round(sum(t.acquisitions)::numeric / sum(t.visitors) * 100, 1) else null end as cvr,
+            exists (
+              select 1 from tracked_keywords tk join keywords k on k.id = tk.keyword_id
+               where k.term_normalized = lower(t.search_term) and k.platform = 'android'
+            ) as tracked
+       from play_search_terms t
+      where t.package_name = $1 and t.day > current_date - 60
+      group by t.search_term
+      order by sum(t.acquisitions) desc nulls last
+      limit $2`,
+    [packageName, limit],
+  );
 }

@@ -8,6 +8,7 @@
  * workspace today: the pattern has to be right before this ever becomes multi-tenant.
  */
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { q, q1, exec, currentWorkspace } from "@/lib/db";
 import { setFetchSink } from "@/lib/stores/http.mjs";
 import { upsertApp } from "@/lib/db.mjs";
@@ -160,6 +161,36 @@ export async function trackApp({
     [ws, appId, role, role === "competitor" ? competitorOf : null, store === "ios" ? "iphone" : "android_phone"],
   );
 
+  // Auto-scan on add (Workstream E): a new competitor immediately yields its keyword
+  // footprint — listing terms now, AI brand/derivative terms if AI is on — instead of
+  // waiting for the nightly crawl. Runs after the response; failures wait for the crawl.
+  if (role === "competitor") {
+    const own = await q1<{ name: string }>(
+      `select a.name from tracked_apps ta join apps a on a.id = ta.app_id where ta.id = $1`,
+      [competitorOf],
+    );
+    const countries = await q<{ country: string }>(
+      `select distinct k.country from tracked_keywords tk
+         join keywords k on k.id = tk.keyword_id
+        where tk.tracked_app_id = $1`,
+      [competitorOf],
+    );
+    after(async () => {
+      try {
+        const { scanCompetitor } = await import("@/lib/competitor-scan.mjs");
+        await scanCompetitor(q, {
+          workspaceId: ws,
+          ownTrackedAppId: competitorOf!,
+          ownAppName: own?.name ?? "",
+          competitor: { platform: store, store_id: storeId, name: meta.name },
+          countries: countries.length ? countries.map((c) => c.country) : [country],
+        });
+      } catch {
+        // the nightly discovery pass covers it
+      }
+    });
+  }
+
   revalidatePath("/", "layout"); // the app switcher lives in the shell, on every page
   return { tracked_app_id: row!.id, name: meta.name as string, platform: store };
 }
@@ -181,4 +212,44 @@ export async function untrackApp(trackedAppId: string) {
   await exec(`delete from tracked_apps where id = $1 and workspace_id = $2`, [trackedAppId, ws]);
   revalidatePath("/", "layout");
   return { removed: true };
+}
+
+/**
+ * Suggested competitors (Workstream E1). Add wraps trackApp so the auto-scan fires;
+ * dismiss persists so a rejected suggestion never comes back.
+ */
+export async function addSuggestedCompetitor(competitorOf: string, store: "ios" | "android", storeId: string) {
+  try {
+    await trackApp({ store, storeId, role: "competitor", competitorOf });
+    revalidatePath("/competitors");
+    return { ok: true };
+  } catch (e: any) {
+    return { error: e.message };
+  }
+}
+
+export async function addAllSuggestedCompetitors(competitorOf: string, list: { store: "ios" | "android"; storeId: string }[]) {
+  let added = 0;
+  let firstError: string | null = null;
+  for (const s of list) {
+    try {
+      await trackApp({ store: s.store, storeId: s.storeId, role: "competitor", competitorOf });
+      added++;
+    } catch (e: any) {
+      firstError ??= e.message;
+    }
+  }
+  revalidatePath("/competitors");
+  return added ? { ok: true } : { error: firstError ?? "Nothing added." };
+}
+
+export async function dismissCompetitorSuggestion(platform: "ios" | "android", storeId: string) {
+  const ws = await workspaceId();
+  await exec(
+    `insert into competitor_suggestion_dismissals (workspace_id, platform, store_id)
+     values ($1,$2,$3) on conflict do nothing`,
+    [ws, platform, storeId],
+  );
+  revalidatePath("/competitors");
+  return { ok: true };
 }

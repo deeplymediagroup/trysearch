@@ -8,6 +8,7 @@
  * this ever becomes multi-tenant, and the schema already supports that.
  */
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { q, q1, exec, currentWorkspace } from "@/lib/db";
 
 async function workspaceId(): Promise<string> {
@@ -131,6 +132,31 @@ export async function addKeywords(trackedAppId: string, terms: string[], countri
     }
   }
 
+  // Instant metrics (Workstream G): compute popularity + difficulty for the new keywords
+  // right now, after the response is sent, so the table fills in within a minute instead
+  // of waiting for the nightly crawl. Failures are fine — the crawl picks up stragglers.
+  after(async () => {
+    const { liveKeywordMetrics, ensureFetchSink, normalizeTerm } = await import("@/lib/serp.mjs");
+    ensureFetchSink(q);
+    const deadline = Date.now() + 240_000; // stay inside the function's duration cap
+    for (const term of unique) {
+      for (const country of countries) {
+        if (Date.now() > deadline) return;
+        try {
+          const row = await q1<{ difficulty: number | null; popularity_estimate: number | null }>(
+            `select difficulty, popularity_estimate from keywords
+              where term_normalized = $1 and platform = $2 and country = $3`,
+            [normalizeTerm(term), app.platform, country],
+          );
+          if (row && row.difficulty != null && row.popularity_estimate != null) continue;
+          await liveKeywordMetrics(q, { term, platform: app.platform, country });
+        } catch {
+          // nightly crawl will fill it in
+        }
+      }
+    }
+  });
+
   revalidatePath("/keywords");
   return { added, alreadyTracked, failed };
 }
@@ -175,4 +201,41 @@ export async function setAutoTrackRanked(trackedAppId: string, enabled: boolean)
   await exec(`update tracked_apps set auto_track_ranked = $3 where id = $1 and workspace_id = $2`, [trackedAppId, ws, enabled]);
   revalidatePath("/keywords");
   return { enabled };
+}
+
+/**
+ * "One tap fills your targets" (Workstream H): pick the 3 best popularity-for-difficulty
+ * non-branded tracked keywords and set them as this locale's target slots
+ * (#1 -> App Name, #2-3 -> Subtitle). Pure code, no AI.
+ */
+export async function autoFillTargets(trackedAppId: string, locale: string) {
+  const ws = await workspaceId();
+  const own = await q1(`select id from tracked_apps where id = $1 and workspace_id = $2`, [trackedAppId, ws]);
+  if (!own) return { error: "Unknown app for this workspace." };
+
+  const best = await q<{ keyword_id: string }>(
+    `select k.id as keyword_id
+       from tracked_keywords tk
+       join keywords k on k.id = tk.keyword_id
+      where tk.tracked_app_id = $1 and not tk.is_branded
+        and coalesce(k.popularity_estimate, k.popularity) is not null
+      order by
+        -- demand discounted by competition; unmeasured difficulty is treated as median 50
+        coalesce(k.popularity_estimate, k.popularity) * (100 - coalesce(k.difficulty, 50)) desc
+      limit 3`,
+    [trackedAppId],
+  );
+  if (!best.length) return { error: "No scored keywords yet — run a crawl or add keywords first." };
+
+  for (let i = 0; i < best.length; i++) {
+    await q(
+      `insert into target_keywords (tracked_app_id, locale, slot, keyword_id)
+       values ($1,$2,$3,$4)
+       on conflict (tracked_app_id, locale, slot) do update set keyword_id = excluded.keyword_id, set_at = now()`,
+      [trackedAppId, locale, i + 1, best[i].keyword_id],
+    );
+  }
+  revalidatePath("/listing-manager");
+  revalidatePath("/listing-helper");
+  return { ok: true };
 }

@@ -13,9 +13,13 @@
 import { useState, useEffect, useRef, useTransition } from "react";
 import { PhoneFrame, StoreAutocompleteMock } from "./PhoneFrame";
 import { Panel, Chip } from "./ui";
-import { autocompleteProbe, keywordRevealProbe } from "@/app/actions/research";
+import { AiButton } from "./AiButton";
+import { autocompleteProbe, keywordRevealProbe, serpProbe, appDetailProbe } from "@/app/actions/research";
+import { addSuggestedCompetitor } from "@/app/actions/apps";
 
-export function AutocompleteSimulator({ countries, defaultPlatform = "ios" }: { countries: string[]; defaultPlatform?: "ios" | "android" }) {
+export type OwnApp = { tracked_app_id: string; name: string; platform: "ios" | "android" };
+
+export function AutocompleteSimulator({ countries, defaultPlatform = "ios", ownApps = [] }: { countries: string[]; defaultPlatform?: "ios" | "android"; ownApps?: OwnApp[] }) {
   const [tab, setTab] = useState<"live" | "reveal">("live");
   const [platform, setPlatform] = useState<"ios" | "android">(defaultPlatform);
   const [country, setCountry] = useState(countries[0] ?? "us");
@@ -52,17 +56,40 @@ export function AutocompleteSimulator({ countries, defaultPlatform = "ios" }: { 
         </label>
       </div>
 
-      <div className="p-6">{tab === "live" ? <LiveSearch platform={platform} country={country} dark={dark} /> : <KeywordReveal platform={platform} country={country} />}</div>
+      <div className="p-6">{tab === "live" ? <LiveSearch platform={platform} country={country} dark={dark} ownApps={ownApps} /> : <KeywordReveal platform={platform} country={country} />}</div>
     </div>
   );
 }
 
-function LiveSearch({ platform, country, dark }: { platform: "ios" | "android"; country: string; dark: boolean }) {
+function LiveSearch({ platform, country, dark, ownApps }: { platform: "ios" | "android"; country: string; dark: boolean; ownApps: OwnApp[] }) {
   const [value, setValue] = useState("");
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [source, setSource] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [serp, setSerp] = useState<any>(null);
+  const [serpLoading, setSerpLoading] = useState<string | null>(null);
+  const [detail, setDetail] = useState<any>(null);
+  const [detailLoading, setDetailLoading] = useState<string | null>(null);
   const seq = useRef(0);
+
+  const openSerp = async (term: string) => {
+    setSerpLoading(term);
+    setDetail(null);
+    try {
+      setSerp(await serpProbe(term, platform, country));
+    } finally {
+      setSerpLoading(null);
+    }
+  };
+
+  const openDetail = async (storeId: string) => {
+    setDetailLoading(storeId);
+    try {
+      setDetail(await appDetailProbe(platform, storeId, country));
+    } finally {
+      setDetailLoading(null);
+    }
+  };
 
   useEffect(() => {
     if (!value.trim()) {
@@ -101,30 +128,125 @@ function LiveSearch({ platform, country, dark }: { platform: "ios" | "android"; 
           </p>
           <ul className="mt-3 space-y-1 text-[11px] text-[var(--fg-subtle)]">
             <li>· The ORDER is the demand signal — Apple ranks suggestions by search popularity.</li>
-            <li>· Apple caps at exactly 10 suggestions; the Play Store's own suggest caps at exactly 5.</li>
+            <li>· Apple caps at exactly 10 suggestions; the Play Store&apos;s own suggest caps at exactly 5.</li>
             <li>· ( ) means the number is our estimate. — means we have not measured it.</li>
           </ul>
           {loading && <p className="mt-2 text-[11px] text-[var(--accent)]">Querying the store…</p>}
         </Panel>
 
         {suggestions.length > 0 && (
-          <Panel title={`${suggestions.length} suggestions`} caption="Position in this list is itself a demand signal.">
+          <Panel title={`${suggestions.length} suggestions`} caption="Position in this list is itself a demand signal. Click one for its live top-10 SERP.">
             <ol className="space-y-1">
               {suggestions.map((s, i) => (
-                <li key={s.term} className="flex items-center justify-between gap-2 text-[12px]">
-                  <span className="num truncate">
-                    <span className="text-[var(--fg-subtle)]">{i + 1}.</span> {s.term}
-                  </span>
-                  <span className="num shrink-0 text-[11px] text-[var(--fg-subtle)]">
-                    pop {s.popularity_estimate ?? s.popularity ?? "—"} · diff {s.difficulty ?? "—"}
-                  </span>
+                <li key={s.term}>
+                  <button
+                    type="button"
+                    onClick={() => openSerp(s.term)}
+                    className={`flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left text-[12px] hover:bg-[var(--bg-elevated)] ${serp?.term === s.term ? "bg-[var(--accent-soft)]" : ""}`}
+                  >
+                    <span className="num flex min-w-0 items-center gap-1.5 truncate">
+                      <span className="text-[var(--fg-subtle)]">{i + 1}.</span> {s.term}
+                      {s.tracked && <Chip tone="branded">Tracked</Chip>}
+                    </span>
+                    <span className="num shrink-0 text-[11px] text-[var(--fg-subtle)]">
+                      {serpLoading === s.term ? "loading…" : <>pop {s.popularity_estimate ?? s.popularity ?? "—"} · diff {s.difficulty ?? "—"}</>}
+                    </span>
+                  </button>
                 </li>
               ))}
             </ol>
           </Panel>
         )}
+
+        {serp && !serp.error && (
+          <Panel
+            title={`Top 10 for “${serp.term}”`}
+            caption={`SERP depth ${serp.depth} · pop ${serp.metrics?.popularity_estimate ?? serp.metrics?.popularity ?? "—"} · diff ${serp.metrics?.difficulty ?? "—"} — computed just now and cached. Click an app for its listing.`}
+          >
+            <ol className="space-y-1">
+              {serp.top.map((a: any) => (
+                <li key={a.store_id}>
+                  <button
+                    type="button"
+                    onClick={() => openDetail(a.store_id)}
+                    className={`flex w-full items-center gap-2 rounded px-1 py-1 text-left text-[12px] hover:bg-[var(--bg-elevated)] ${detail?.store_id === a.store_id ? "bg-[var(--accent-soft)]" : ""}`}
+                  >
+                    <span className="num w-6 shrink-0 text-[var(--fg-subtle)]">#{a.position}</span>
+                    {a.icon_url && <img src={a.icon_url} alt="" width={20} height={20} className="rounded-[5px]" />}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate"><Highlight text={a.name ?? `(app ${a.store_id})`} term={serp.term} /></span>
+                      {a.subtitle && <span className="block truncate text-[11px] text-[var(--fg-muted)]"><Highlight text={a.subtitle} term={serp.term} /></span>}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1">
+                      {a.tracked && <Chip tone="branded">Tracked</Chip>}
+                      {a.outlier && <Chip tone="beatable">Outlier</Chip>}
+                      <span className="num text-[11px] text-[var(--fg-subtle)]">
+                        {detailLoading === a.store_id ? "loading…" : a.rating_count != null ? `★ ${Number(a.rating_average ?? 0).toFixed(1)} · ${Intl.NumberFormat().format(a.rating_count)}` : "—"}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </Panel>
+        )}
+        {serp?.error && <Panel title="SERP failed"><p className="text-[12px] text-[var(--down)]">{serp.error}</p></Panel>}
+
+        {detail && !detail.error && (
+          <Panel title={detail.name} caption={`${detail.category ?? "—"}${detail.version ? ` · v${detail.version}` : ""}`}>
+            <dl className="grid grid-cols-2 gap-3 text-[12px] sm:grid-cols-4">
+              <div><dt className="th">Rating</dt><dd className="num mt-0.5">★ {Number(detail.rating_average ?? 0).toFixed(1)} ({Intl.NumberFormat().format(detail.rating_count ?? 0)})</dd></div>
+              <div><dt className="th">Price</dt><dd className="num mt-0.5">{detail.price_cents ? `$${(detail.price_cents / 100).toFixed(2)}` : "Free"}</dd></div>
+              <div>
+                <dt className="th">IAP range</dt>
+                <dd className="num mt-0.5">
+                  {detail.iap_range ? `$${(detail.iap_range.min_cents / 100).toFixed(2)}–$${(detail.iap_range.max_cents / 100).toFixed(2)}` : detail.real_installs ? `${Intl.NumberFormat().format(detail.real_installs)} installs` : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="th">Track</dt>
+                <dd className="mt-0.5">
+                  {(() => {
+                    const own = ownApps.find((o) => o.platform === platform);
+                    return own ? (
+                      <AiButton
+                        label="Track as competitor"
+                        pendingLabel="Tracking…"
+                        action={addSuggestedCompetitor.bind(null, own.tracked_app_id, platform, detail.store_id)}
+                      />
+                    ) : (
+                      <span className="text-[11px] text-[var(--fg-subtle)]">No own {platform} app</span>
+                    );
+                  })()}
+                </dd>
+              </div>
+            </dl>
+            {detail.description && (
+              <p className="mt-3 whitespace-pre-wrap text-[11.5px] leading-relaxed text-[var(--fg-muted)]">
+                <Highlight text={detail.description} term={serp?.term ?? value} />
+              </p>
+            )}
+          </Panel>
+        )}
+        {detail?.error && <Panel title="Lookup failed"><p className="text-[12px] text-[var(--down)]">{detail.error}</p></Panel>}
       </div>
     </div>
+  );
+}
+
+/** Highlights every word of the probed term inside listing text — where the ranking comes from. */
+function Highlight({ text, term }: { text: string; term: string }) {
+  const words = term.toLowerCase().split(/\s+/).filter((w) => w.length > 1);
+  if (!words.length) return <>{text}</>;
+  const rx = new RegExp(`(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+  // split with one capture group alternates text/match — odd indices are the matches.
+  const parts = text.split(rx);
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 === 1 ? <mark key={i} className="rounded-[2px] bg-[var(--accent-soft)] px-0.5 text-[var(--accent)]">{p}</mark> : <span key={i}>{p}</span>,
+      )}
+    </>
   );
 }
 

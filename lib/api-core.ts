@@ -188,17 +188,22 @@ export const OPS: Record<string, Op> = {
   },
 
   app_reviews: {
-    description: "Recent public customer reviews for an app (iOS only — Play exposes no free review feed).",
+    description: "Recent public customer reviews for an app. iOS: reviews RSS. Android: Play's internal endpoint — brittle by nature, so an Android failure means 'unavailable right now', not 'no reviews'.",
     schema: {
       type: "object",
-      properties: { store: STORE, id: { type: "string" }, country: COUNTRY, sort: { type: "string", enum: ["mostrecent", "mosthelpful"] }, limit: { type: "integer" } },
+      properties: { store: STORE, id: { type: "string" }, country: COUNTRY, sort: { type: "string", enum: ["mostrecent", "mosthelpful"], description: "iOS only" }, limit: { type: "integer" } },
       required: ["store", "id"],
     },
     async run({ store, id, country = "us", sort = "mostrecent", limit = 50 }) {
-      if (store !== "ios") throw new ApiError("bad_request", "Reviews are iOS-only; Google exposes no free review feed.");
       withSink();
-      const page = await appleReviews(id, country, 1, sort);
-      return (page?.reviews ?? []).slice(0, Math.min(Number(limit) || 50, 200));
+      const n = Math.min(Number(limit) || 50, 200);
+      if (store === "ios") {
+        const page = await appleReviews(id, country, 1, sort);
+        return (page?.reviews ?? []).slice(0, n);
+      }
+      const { playReviews } = await import("@/lib/stores/play.mjs");
+      const page = await playReviews(id, country, { count: n });
+      return (page?.reviews ?? []).slice(0, n);
     },
   },
 
@@ -265,7 +270,7 @@ export const OPS: Record<string, Op> = {
 
   keyword_metrics: {
     description:
-      "Popularity and difficulty for up to 25 keywords in one call. Stored metrics where the nightly crawl has them; otherwise a live autocomplete-depth popularity estimate (difficulty needs a crawl, so it may be null).",
+      "Popularity and difficulty for up to 25 keywords in one call. Stored metrics where the crawl has them; never-seen keywords compute ON THE SPOT (one SERP + one autocomplete depth walk, ~3-10s each) and are cached for every later caller. If the request's time budget runs out mid-batch, remaining items return status 'calculating' — call again with those terms.",
     schema: {
       type: "object",
       properties: {
@@ -281,22 +286,30 @@ export const OPS: Record<string, Op> = {
       if (!terms.length) throw new ApiError("bad_request", "Pass q or qs.");
       withSink();
 
+      // Live compute is time-boxed well under Vercel's cap so a bulk call of unknowns
+      // degrades to 'calculating' items instead of a 504. Pure fetch+math — no AI in this path.
+      const deadline = Date.now() + 35_000;
+      const { liveKeywordMetrics, normalizeTerm } = await import("@/lib/serp.mjs");
+
       const out = [];
       for (const term of terms) {
         try {
-          const normalized = term.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
+          const normalized = normalizeTerm(term);
           const known = await q1<any>(
             `select term, popularity, popularity_estimate, difficulty, metrics_updated_at from keywords
               where term_normalized = $1 and platform = $2 and country = $3`,
             [normalized, store, country],
           );
-          if (known && (known.popularity != null || known.popularity_estimate != null || known.difficulty != null)) {
+          if (known && (known.popularity != null || known.popularity_estimate != null) && known.difficulty != null) {
             out.push({ ...known, source: "crawl" });
             continue;
           }
-          const depth = await suggestDepth(term, country, store, store === "android" ? { playSuggest } : {});
-          const scored = popularityProxy(depth);
-          out.push({ term, popularity: null, popularity_estimate: scored.value, difficulty: null, source: "live_estimate" });
+          if (Date.now() > deadline) {
+            out.push({ term, status: "calculating", hint: "Time budget spent — call again for this term." });
+            continue;
+          }
+          const row = await liveKeywordMetrics(q, { term, platform: store, country });
+          out.push({ ...row, source: "on_demand" });
         } catch (err: any) {
           // Bulk returns 200 with a per-item error, never fails the batch (spec §2.2).
           out.push({ term, error: err.message });

@@ -51,15 +51,43 @@ export async function analyzeReviews(appId: string) {
     .map((r) => `[${r.rating}★${r.app_version ? ` v${r.app_version}` : ""}] ${r.title ?? ""} — ${r.body ?? ""}`)
     .join("\n");
 
+  // Re-run comparison (Workstream K): hand the previous themes to the model so the new
+  // report says what got better, what persists, and what went away — same pattern as
+  // generateLandscape's diff.
+  const previous = await q1<{ praise: any; complaints: any; feature_requests: any; created_at: string }>(
+    `select praise, complaints, feature_requests, created_at from review_analyses
+      where app_id = $1 order by created_at desc limit 1`,
+    [appId],
+  );
+
+  const CHANGE_LIST = {
+    type: "array",
+    items: {
+      type: "object",
+      properties: {
+        theme: { type: "string" },
+        status: { type: "string", enum: ["improving", "persisting", "resolved", "new"] },
+        detail: { type: "string" },
+      },
+      required: ["theme", "status", "detail"],
+      additionalProperties: false,
+    },
+  } as const;
+
   try {
-    const result = await aiJson<{ praise: any[]; complaints: any[]; feature_requests: any[] }>({
+    const result = await aiJson<{ praise: any[]; complaints: any[]; feature_requests: any[]; changes: any[] }>({
       system:
-        "You are an App Store review analyst. Group reviews into recurring themes. Quotes must be verbatim substrings of the provided reviews, at most 2 per theme, each under 140 characters. Counts are how many reviews touch the theme. Order themes by count descending, max 6 per group.",
-      prompt: `Analyze these ${reviews.length} app store reviews:\n\n${corpus}`,
+        "You are an App Store review analyst. Group reviews into recurring themes. Quotes must be verbatim substrings of the provided reviews, at most 2 per theme, each under 140 characters. Counts are how many reviews touch the theme. Order themes by count descending, max 6 per group. " +
+        (previous
+          ? "A PREVIOUS ANALYSIS is provided: also emit `changes` — for each notable complaint theme, whether it is improving (fewer mentions), persisting, resolved (gone), or new since that run. Max 6, most consequential first."
+          : "There is no previous analysis: return `changes` as an empty array."),
+      prompt:
+        `Analyze these ${reviews.length} app store reviews:\n\n${corpus}` +
+        (previous ? `\n\nPREVIOUS ANALYSIS (${previous.created_at}):\n${JSON.stringify({ praise: previous.praise, complaints: previous.complaints, feature_requests: previous.feature_requests })}` : ""),
       schema: {
         type: "object",
-        properties: { praise: THEME_LIST, complaints: THEME_LIST, feature_requests: THEME_LIST },
-        required: ["praise", "complaints", "feature_requests"],
+        properties: { praise: THEME_LIST, complaints: THEME_LIST, feature_requests: THEME_LIST, changes: CHANGE_LIST },
+        required: ["praise", "complaints", "feature_requests", "changes"],
         additionalProperties: false,
       },
     });
@@ -67,9 +95,14 @@ export async function analyzeReviews(appId: string) {
     const oldest = reviews[reviews.length - 1].reviewed_at;
     const newest = reviews[0].reviewed_at;
     await q(
-      `insert into review_analyses (app_id, window_start, window_end, review_count, praise, complaints, feature_requests, model)
-       values ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [appId, oldest, newest, reviews.length, JSON.stringify(result.praise), JSON.stringify(result.complaints), JSON.stringify(result.feature_requests), AI_MODEL],
+      `insert into review_analyses (app_id, window_start, window_end, review_count, praise, complaints, feature_requests, changes, model)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        appId, oldest, newest, reviews.length,
+        JSON.stringify(result.praise), JSON.stringify(result.complaints), JSON.stringify(result.feature_requests),
+        previous ? JSON.stringify(result.changes ?? []) : null,
+        AI_MODEL,
+      ],
     );
     revalidatePath("/reviews");
     return { ok: true };
@@ -262,4 +295,105 @@ export async function generateListing(trackedAppId: string, locale: string, deta
   } catch (err: any) {
     return { error: err.message };
   }
+}
+
+/**
+ * Per-field re-roll (Workstream H): regenerate ONE field of the latest draft while every
+ * other field stays fixed. Far cheaper than a full generation, and the result is saved as a
+ * NEW draft row so history keeps every version.
+ */
+export async function regenerateField(
+  draftId: string,
+  field: "app_name" | "subtitle" | "promotional_text" | "description",
+) {
+  if (!aiEnabled()) return { error: "ANTHROPIC_API_KEY is not set." };
+  const ws = await workspaceId();
+
+  const draft = await q1<any>(
+    `select ld.*, ta.app_id, a.name as live_name, a.platform
+       from listing_drafts ld
+       join tracked_apps ta on ta.id = ld.tracked_app_id and ta.workspace_id = $2
+       join apps a on a.id = ta.app_id
+      where ld.id = $1`,
+    [draftId, ws],
+  );
+  if (!draft) return { error: "Unknown draft for this workspace." };
+
+  const LIMITS: Record<string, number> = { app_name: 30, subtitle: 30, promotional_text: 170, description: 4000 };
+  const keywords = await q<{ term: string }>(
+    `select k.term from tracked_keywords tk join keywords k on k.id = tk.keyword_id
+      where tk.tracked_app_id = $1 and not tk.is_branded
+      order by coalesce(k.popularity, k.popularity_estimate, 0) desc limit 15`,
+    [draft.tracked_app_id],
+  );
+
+  try {
+    const out = await aiJson<{ value: string }>({
+      system:
+        `You rewrite exactly ONE field of an App Store listing. HARD LIMIT: ${LIMITS[field]} characters including spaces. ` +
+        "Do not repeat words already used in the other indexed fields (Apple indexes App Name + Subtitle as one bag of words). " +
+        "No competitor brands or people's names. Return a genuinely different take, not a paraphrase.",
+      prompt:
+        `Field to rewrite: ${field}\nCurrent value: ${draft[field] ?? ""}\n\n` +
+        `The rest of the listing stays EXACTLY as-is:\n` +
+        `App Name: ${draft.app_name}\nSubtitle: ${draft.subtitle}\nPromotional Text: ${draft.promotional_text}\n` +
+        `Description (excerpt): ${String(draft.description ?? "").slice(0, 600)}\n\n` +
+        `Top keywords: ${keywords.map((k) => k.term).join(", ")}`,
+      schema: {
+        type: "object",
+        properties: { value: { type: "string" } },
+        required: ["value"],
+        additionalProperties: false,
+      },
+    });
+
+    const next: any = { ...draft, [field]: out.value };
+
+    // App Name / Subtitle feed the bag-of-words, so the pure-code packer reruns on those.
+    let keywordsField = draft.keywords_field;
+    let rationale = draft.rationale;
+    if (field === "app_name" || field === "subtitle") {
+      const { packKeywordField, isMetadataSafe, appNameBlocklist } = await import("@/lib/scoring/listing.mjs");
+      const knownApps = await q(`select name, developer_name, store_id from apps where platform = $1 limit 3000`, [draft.platform]);
+      const blocklist = appNameBlocklist(knownApps as any[], null);
+      const cands = await q<{ term: string; popularity: number | null; popularity_estimate: number | null }>(
+        `select k.term, k.popularity, k.popularity_estimate from tracked_keywords tk join keywords k on k.id = tk.keyword_id
+          where tk.tracked_app_id = $1 order by coalesce(k.popularity, k.popularity_estimate, 0) desc limit 30`,
+        [draft.tracked_app_id],
+      );
+      const packed = packKeywordField(
+        cands.map((k) => ({ term: k.term, score: k.popularity ?? k.popularity_estimate ?? 0, metadataSafe: isMetadataSafe(k.term, { blocklist }).safe })),
+        { app_name: next.app_name, subtitle: next.subtitle, keywords_field: null, description: next.description },
+      );
+      keywordsField = packed.field;
+      rationale = JSON.stringify(packed.because ?? {});
+    }
+
+    await q(
+      `insert into listing_drafts (tracked_app_id, locale, app_name, subtitle, keywords_field, promotional_text, description, rationale, model)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [draft.tracked_app_id, draft.locale, next.app_name, next.subtitle, keywordsField, next.promotional_text, next.description, rationale, AI_MODEL],
+    );
+    revalidatePath("/listing-helper");
+    return { ok: true };
+  } catch (err: any) {
+    return { error: err.message };
+  }
+}
+
+/** Bring a previous draft back as the latest — a copy, so history stays intact. */
+export async function restoreListingDraft(draftId: string) {
+  const ws = await workspaceId();
+  const row = await q1<{ id: string }>(
+    `insert into listing_drafts (tracked_app_id, locale, app_name, subtitle, keywords_field, promotional_text, description, rationale, model)
+     select ld.tracked_app_id, ld.locale, ld.app_name, ld.subtitle, ld.keywords_field, ld.promotional_text, ld.description, ld.rationale, ld.model
+       from listing_drafts ld
+       join tracked_apps ta on ta.id = ld.tracked_app_id and ta.workspace_id = $2
+      where ld.id = $1
+     returning id`,
+    [draftId, ws],
+  );
+  if (!row) return { error: "Unknown draft for this workspace." };
+  revalidatePath("/listing-helper");
+  return { ok: true };
 }

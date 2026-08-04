@@ -325,6 +325,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   listing: "Your listing",
   ai: "AI",
   chart: "Chart",
+  competitor_ai: "Competitor AI",
 };
 
 /** CountryFlag — never show a rank without one. Emoji, so zero image requests. */

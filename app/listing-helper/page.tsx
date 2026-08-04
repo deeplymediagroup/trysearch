@@ -7,9 +7,9 @@
  */
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { Panel, Chip, EmptyState } from "@/components/ui";
-import { listKeywords, getLatestSnapshot, getCountries, getLatestListingDraft } from "@/lib/queries";
+import { listKeywords, getLatestSnapshot, getCountries, getListingDrafts } from "@/lib/queries";
 import { q } from "@/lib/db";
-import { generateListing } from "@/app/actions/ai";
+import { generateListing, regenerateField, restoreListingDraft } from "@/app/actions/ai";
 import { aiEnabled } from "@/lib/ai";
 import { AiButton } from "@/components/AiButton";
 import * as fmt from "@/lib/format";
@@ -32,7 +32,8 @@ export default async function ListingHelperPage() {
   }
 
   const countries = await getCountries(active.tracked_app_id);
-  const draft = (await getLatestListingDraft(active.tracked_app_id)) as any;
+  const drafts = (await getListingDrafts(active.tracked_app_id)) as any[];
+  const draft = drafts[0] ?? null;
   const [keywords, snapshot, knownApps] = await Promise.all([
     listKeywords(active.tracked_app_id, active.app_id),
     getLatestSnapshot(active.app_id, countries[0] ?? "us") as any,
@@ -188,20 +189,49 @@ export default async function ListingHelperPage() {
                       Draft · {draft.locale} · {fmt.relativeDate(draft.created_at)} · {draft.model}
                     </p>
                     {([
-                      ["App Name", draft.app_name, 30],
-                      ["Subtitle", draft.subtitle, 30],
-                      ["Keywords", draft.keywords_field, 100],
-                      ["Promotional Text", draft.promotional_text, 170],
-                      ["Description", draft.description, 4000],
-                    ] as const).map(([label, value, limit]) => (
+                      ["App Name", draft.app_name, 30, "app_name"],
+                      ["Subtitle", draft.subtitle, 30, "subtitle"],
+                      ["Keywords", draft.keywords_field, 100, null],
+                      ["Promotional Text", draft.promotional_text, 170, "promotional_text"],
+                      ["Description", draft.description, 4000, "description"],
+                    ] as const).map(([label, value, limit, field]) => (
                       <div key={label}>
-                        <p className="th flex items-baseline justify-between">
+                        <p className="th flex items-baseline justify-between gap-2">
                           <span>{label}</span>
-                          <span className="num text-[10px]">{(value ?? "").length}/{limit}</span>
+                          <span className="flex items-center gap-2">
+                            <span className="num text-[10px]">{(value ?? "").length}/{limit}</span>
+                            {field && (
+                              <AiButton label="Re-roll" pendingLabel="Rewriting…" action={regenerateField.bind(null, draft.id, field)} />
+                            )}
+                          </span>
                         </p>
                         <p className={`whitespace-pre-wrap text-[12px] ${label === "Description" ? "line-clamp-6" : ""}`}>{value || fmt.EM_DASH}</p>
                       </div>
                     ))}
+                    <p className="text-[10px] text-[var(--fg-subtle)]">
+                      Re-rolling one field keeps every other field fixed; the Keywords field is always the pure-code
+                      packer&apos;s, recomputed when App Name or Subtitle change. Every version is kept below.
+                    </p>
+                  </div>
+                )}
+
+                {drafts.length > 1 && (
+                  <div>
+                    <p className="th mb-1.5">Draft history</p>
+                    <ul className="space-y-1">
+                      {drafts.slice(1).map((d) => (
+                        <li key={d.id} className="flex items-center justify-between gap-2 text-[11.5px]">
+                          <span className="min-w-0 truncate">
+                            <span className="num">{d.app_name ?? "(untitled)"}</span>
+                            <span className="text-[var(--fg-subtle)]"> — {d.subtitle ?? fmt.EM_DASH}</span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span className="text-[10px] text-[var(--fg-subtle)]">{fmt.relativeDate(d.created_at)}</span>
+                            <AiButton label="Restore" pendingLabel="Restoring…" action={restoreListingDraft.bind(null, d.id)} />
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>

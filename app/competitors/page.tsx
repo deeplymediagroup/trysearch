@@ -7,8 +7,9 @@
 import Link from "next/link";
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { Panel, RankPill, ScoreCell, PopularityCell, CountryFlag, Chip, EmptyState, StalenessNote, EstimateLegend } from "@/components/ui";
-import { getCompetitors, getCompetitivePositions, getStaleness, getAiAnalyses } from "@/lib/queries";
+import { getCompetitors, getCompetitivePositions, getStaleness, getAiAnalyses, getSuggestedCompetitors } from "@/lib/queries";
 import { generateLandscape } from "@/app/actions/ai";
+import { addSuggestedCompetitor, addAllSuggestedCompetitors, dismissCompetitorSuggestion } from "@/app/actions/apps";
 import { trackTermsFromAnalysis } from "@/app/actions/keywords";
 import { aiEnabled } from "@/lib/ai";
 import { AiButton } from "@/components/AiButton";
@@ -39,11 +40,12 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
     );
   }
 
-  const [competitors, positions, staleness, analyses] = await Promise.all([
+  const [competitors, positions, staleness, analyses, suggestions] = await Promise.all([
     getCompetitors(active.tracked_app_id),
     getCompetitivePositions(active.tracked_app_id),
     getStaleness(active.app_id),
     getAiAnalyses(active.tracked_app_id),
+    active.role === "own" ? getSuggestedCompetitors(active.workspace_id, active) : Promise.resolve([]),
   ]);
 
   const counts = Object.fromEntries(BUCKETS.map((b) => [b.id, positions.filter((p: any) => p.bucket === b.id).length]));
@@ -85,6 +87,40 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
       </nav>
 
       <div className="p-6">
+        {tab === "competitors" && suggestions.length > 0 && (
+          <Panel
+            title="Suggested competitors"
+            caption="Computed from data already collected — apps ranking on your tracked keywords, plus the store's similar-apps shelf. Adding one immediately scans its keyword footprint."
+          >
+            <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {suggestions.map((s) => (
+                <div key={`${s.platform}:${s.store_id}`} className="flex items-center justify-between gap-2 rounded border border-[var(--border)] bg-[var(--bg-panel)] px-3 py-2">
+                  <span className="flex min-w-0 items-center gap-2">
+                    {s.icon_url && <img src={s.icon_url} alt="" width={20} height={20} className="rounded-[5px]" />}
+                    <span className="min-w-0">
+                      <span className="num block truncate text-[12.5px]">{s.name ?? `(app ${s.store_id})`}</span>
+                      <span className="block text-[11px] text-[var(--fg-subtle)]">
+                        {s.reason === "serp" ? <>Ranks on <span className="num">{s.overlap}</span> of your keywords</> : "On your similar-apps shelf"}
+                      </span>
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1">
+                    <AiButton label="Add" pendingLabel="Adding…" action={addSuggestedCompetitor.bind(null, active.tracked_app_id, s.platform, s.store_id)} />
+                    <AiButton label="✕" pendingLabel="…" action={dismissCompetitorSuggestion.bind(null, s.platform, s.store_id)} />
+                  </span>
+                </div>
+              ))}
+            </div>
+            {suggestions.length > 1 && (
+              <AiButton
+                label={`Add all ${suggestions.length}`}
+                pendingLabel="Adding all…"
+                action={addAllSuggestedCompetitors.bind(null, active.tracked_app_id, suggestions.map((s) => ({ store: s.platform, storeId: s.store_id })))}
+              />
+            )}
+          </Panel>
+        )}
+
         {tab === "competitors" && (
           <Panel caption="Your own app is pinned first. Install counts come from Play; Apple exposes none at any price.">
             {competitors.length === 0 ? (

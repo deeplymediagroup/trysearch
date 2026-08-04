@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { PhoneFrame, StoreSearchResultMock } from "./PhoneFrame";
 import { Panel, Chip, EmptyState } from "./ui";
+import { AiButton } from "./AiButton";
 import { FIELD_LIMITS } from "@/lib/scoring/listing.mjs";
 import { graphemeLength } from "@/lib/scoring/text.mjs";
 
@@ -33,11 +34,13 @@ export function ListingManager({
   screenshots,
   iconUrl,
   targets,
+  autoFill,
 }: {
   listings: Listing[];
   screenshots: string[];
   iconUrl: string | null;
   targets: { slot: number; term: string }[];
+  autoFill?: () => Promise<{ ok?: boolean; error?: string }>;
 }) {
   const live = listings.filter((l) => l.status === "live");
   const drafts = listings.filter((l) => l.status === "draft");
@@ -117,10 +120,13 @@ export function ListingManager({
           }
         >
           <div className="rounded-[var(--radius-chip)] border border-[var(--border)] p-2.5">
-            <p className="text-[12px] font-medium">Target keywords</p>
+            <p className="flex items-center justify-between text-[12px] font-medium">
+              <span>Target keywords</span>
+              {autoFill && <AiButton label="Auto-fill" pendingLabel="Picking…" action={autoFill} />}
+            </p>
             <p className="mt-0.5 text-[11px] text-[var(--fg-muted)]">
               Pick 3 keywords this localization should rank for — #1 goes in the App Name, #2–3 in the Subtitle — and
-              we&apos;ll track them in this market.
+              we&apos;ll track them in this market. Auto-fill picks your best popularity-for-difficulty keywords.
             </p>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {[1, 2, 3].map((slot) => {

@@ -236,7 +236,7 @@ create table if not exists discovered_keywords (
   workspace_id      uuid not null references workspaces(id) on delete cascade,
   tracked_app_id    uuid not null references tracked_apps(id) on delete cascade,
   keyword_id        bigint not null references keywords(id) on delete cascade,
-  source            text not null check (source in ('autocomplete','listing','competitor','ai','chart')),
+  source            text not null check (source in ('autocomplete','listing','competitor','ai','chart','competitor_ai')),
   relevance         integer check (relevance between 0 and 100),   -- AI-assessed intent match; NULL until computed
   opportunity       integer check (opportunity between 0 and 100),
   last_checked_at   timestamptz,            -- NULL renders as "never"
@@ -250,6 +250,44 @@ create index if not exists discovered_open on discovered_keywords(tracked_app_id
 
 -- The table predates the relevance reason (03 §6 asks for score + one-sentence why).
 alter table discovered_keywords add column if not exists relevance_reason text;
+
+-- The check predates the per-competitor AI source ('competitor_ai'), so refresh it on
+-- installs migrated before it existed.
+alter table discovered_keywords drop constraint if exists discovered_keywords_source_check;
+alter table discovered_keywords add constraint discovered_keywords_source_check
+  check (source in ('autocomplete','listing','competitor','ai','chart','competitor_ai'));
+
+-- Research projects (Workstream J): standalone keyword research containers, independent of
+-- tracked apps. Keyword rows reference the SHARED keywords table (05 §2.5) so metrics are
+-- computed once and reused; deleting a project never deletes measurements.
+create table if not exists research_projects (
+  id                uuid primary key default gen_random_uuid(),
+  workspace_id      uuid not null references workspaces(id) on delete cascade,
+  name              text not null,
+  notes             text,
+  created_at        timestamptz not null default now()
+);
+
+create table if not exists research_keywords (
+  id                bigserial primary key,
+  project_id        uuid not null references research_projects(id) on delete cascade,
+  keyword_id        bigint not null references keywords(id) on delete cascade,
+  source            text not null default 'manual',   -- 'manual' | 'seed:<store_id>'
+  added_at          timestamptz not null default now(),
+  unique (project_id, keyword_id)
+);
+
+create index if not exists research_keywords_project on research_keywords(project_id);
+
+-- Dismissed competitor suggestions ("ranks on N of your keywords" cards). Keyed by the
+-- suggested app, not a tracked row — these apps are by definition not tracked yet.
+create table if not exists competitor_suggestion_dismissals (
+  workspace_id      uuid not null references workspaces(id) on delete cascade,
+  platform          text not null check (platform in ('ios','android')),
+  store_id          text not null,
+  dismissed_at      timestamptz not null default now(),
+  primary key (workspace_id, platform, store_id)
+);
 
 -- Per-app, per-locale target keywords (max 3; slot 1 -> App Name, 2-3 -> Subtitle)
 create table if not exists target_keywords (
@@ -434,6 +472,10 @@ create table if not exists review_analyses (
   model             text,
   created_at        timestamptz not null default now()
 );
+
+-- Re-run comparison (Workstream K): what improved / persists / resolved vs the previous
+-- analysis. NULL on the first run — there is nothing to diff against.
+alter table review_analyses add column if not exists changes jsonb;
 
 -- Daily review-volume counters, so "review spike" alerts have a baseline.
 create table if not exists review_daily_counts (
@@ -682,10 +724,46 @@ do $$ begin
   alter table crawl_jobs drop constraint if exists crawl_jobs_kind_check;
   alter table crawl_jobs add constraint crawl_jobs_kind_check check (kind in
     ('rank_check','autocomplete','app_snapshot','reviews','metrics',
-     'discovery','rollup','alerts','asc_sync','play_sync','revenue'));
+     'discovery','rollup','alerts','asc_sync','play_sync','revenue','charts'));
 end $$;
 
 create index if not exists crawl_jobs_open on crawl_jobs(kind, status, created_at);
+
+-- REAL Play search terms (Workstream I — the differentiator): measured queries with
+-- conversion data from the Play Console GCS bucket. Ground truth, not autocomplete
+-- inference; Google collapses low-volume terms into a single 'Other' row.
+create table if not exists play_search_terms (
+  id                bigserial primary key,
+  package_name      text not null,
+  day               date not null,
+  search_term       text not null,
+  visitors          integer,
+  acquisitions      integer,
+  conversion_rate   numeric,
+  fetched_at        timestamptz not null default now(),
+  unique (package_name, day, search_term)
+);
+
+create index if not exists play_search_terms_pkg on play_search_terms(package_name, day desc);
+
+-- Daily top-chart snapshots (Workstream H): rank per (store, country, category, chart, day).
+-- Lean on purpose — the page joins apps for names/icons and diffs consecutive days for
+-- movement. iOS categories are genre ids ('all' = overall); Android uses Play category ids.
+create table if not exists chart_entries (
+  id                bigserial primary key,
+  platform          text not null check (platform in ('ios','android')),
+  country           text not null,
+  category          text not null,
+  chart             text not null,
+  captured_on       date not null,
+  rank              integer not null,
+  app_id            uuid not null references apps(id) on delete cascade,
+  unique (platform, country, category, chart, captured_on, rank)
+);
+
+create index if not exists chart_entries_lookup
+  on chart_entries(platform, country, category, chart, captured_on desc);
+create index if not exists chart_entries_app on chart_entries(app_id, captured_on desc);
 
 -- Fetch ledger. One row per upstream HTTP call. This is how you diagnose
 -- throttling instead of guessing, and how the global politeness budget is

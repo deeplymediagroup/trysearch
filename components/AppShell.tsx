@@ -45,6 +45,8 @@ const NAV: NavGroup[] = [
       { label: "Listing Manager", href: "/listing-manager", badge: "NEW" },
       { label: "Listing Helper", href: "/listing-helper", badge: "NEW" },
       { label: "Autocomplete", href: "/autocomplete", badge: "NEW" },
+      { label: "Top Charts", href: "/top-charts", badge: "NEW" },
+      { label: "Research", href: "/research", badge: "NEW" },
       { label: "Revenue", href: "/revenue", badge: "ALPHA" },
     ],
   },

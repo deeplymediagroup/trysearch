@@ -20,7 +20,6 @@
 import { connect, q, q1, upsertApp, upsertKeyword } from "../lib/db.mjs";
 import { setFetchSink, fetchStats, pruneCache, CooldownError } from "../lib/stores/http.mjs";
 import {
-  appleSearchRanked,
   appleLookup,
   appleAppSSR,
   appleReviews,
@@ -28,13 +27,13 @@ import {
   suggestDepth,
   appleInAppPurchases,
   appleChartsSSR,
+  appleChartsRSS,
 } from "../lib/stores/apple.mjs";
-import { playSearchRanked, playAppDetail, playSuggest, playSuggestBroad, extractListingKeywords } from "../lib/stores/play.mjs";
+import { playAppDetail, playSuggest, playSuggestBroad, extractListingKeywords, playCategoryRanking, playReviews } from "../lib/stores/play.mjs";
+import { fetchIosSerp, fetchAndroidSerp, persistSerp, updateKeywordSerpMetrics } from "../lib/serp.mjs";
+import { scanCompetitor } from "../lib/competitor-scan.mjs";
 import { aiEnabled, scoreRelevance, generateKeywordCandidates, verifyCandidate } from "../lib/ai.mjs";
 import {
-  difficulty,
-  serpOutlier,
-  beatable,
   popularityProxy,
   popularityProxyAndroid,
   popularityEffective,
@@ -81,7 +80,7 @@ const WATCHED = [
   ["icon_url", "icon"],
 ];
 
-const ALL_JOBS = ["app_snapshot", "revenue", "asc_sync", "rank_check", "autocomplete", "metrics", "discovery", "reviews", "rollup", "alerts"];
+const ALL_JOBS = ["app_snapshot", "charts", "revenue", "asc_sync", "play_sync", "rank_check", "autocomplete", "metrics", "discovery", "reviews", "rollup", "alerts"];
 const JOBS = has("--all") || !arg("--jobs") ? ALL_JOBS : arg("--jobs").split(",").map((s) => s.trim()).filter(Boolean);
 const RUN_DATE = arg("--date") ?? new Date().toISOString().slice(0, 10);
 const LIMIT = Number(arg("--limit", "0")) || 0;
@@ -117,6 +116,19 @@ const started = Date.now();
 // ---------------------------------------------------------------------------
 const db = await connect();
 setFetchSink(db);
+// Adapter for lib/serp.mjs, whose functions take a plain `query(sql, params) => rows[]`.
+const dbq = (sql, params) => q(db, sql, params);
+
+// Apple's decade-stable genre ids (apps only — Games charts use a different URL shape).
+// Used by the charts snapshot job and discovery Source E.
+const APPLE_GENRE_IDS = {
+  "books": 6018, "business": 6000, "developer tools": 6026, "education": 6017,
+  "entertainment": 6016, "finance": 6015, "food & drink": 6023, "graphics & design": 6027,
+  "health & fitness": 6013, "lifestyle": 6012, "magazines & newspapers": 6021,
+  "medical": 6020, "music": 6011, "navigation": 6010, "news": 6009,
+  "photo & video": 6008, "productivity": 6007, "reference": 6006, "shopping": 6024,
+  "social networking": 6005, "sports": 6004, "travel": 6003, "utilities": 6002, "weather": 6001,
+};
 
 log(`\ntrysearch crawl — ${RUN_DATE}`);
 log(`jobs: ${JOBS.join(", ")}${DRY ? "  (DRY RUN — no upstream fetches)" : ""}${MAX_MINUTES ? `  ·  budget ${MAX_MINUTES} min` : ""}\n`);
@@ -334,6 +346,103 @@ function truncate(s) {
 }
 
 // ===========================================================================
+// JOB 1a½ — charts: daily top-chart snapshots → chart_entries (Workstream H)
+// The /top-charts page needs STORED history for day-over-day movement; the live
+// charts op has no memory. Cheap: RSS/HTML fetches, all cached by the fetch layer.
+// ===========================================================================
+if (JOBS.includes("charts")) {
+  const own = trackedApps.filter((a) => a.role === "own");
+
+  // One snapshot per (platform, country, category, chart) the team's apps live in:
+  // the overall chart plus each app's primary genre.
+  const combos = new Map();
+  for (const app of own) {
+    for (const country of await countriesFor(app)) {
+      if (app.platform === "ios") {
+        const genreId = app.primary_genre ? APPLE_GENRE_IDS[app.primary_genre.toLowerCase()] : null;
+        for (const chart of ["topfreeapplications", "topgrossingapplications", "toppaidapplications"]) {
+          combos.set(`ios|${country}|all|${chart}`, { platform: "ios", country, category: "all", chart, genreId: null });
+          if (genreId) combos.set(`ios|${country}|${genreId}|${chart}`, { platform: "ios", country, category: String(genreId), chart, genreId });
+        }
+      } else {
+        // Play's category id convention IS the uppercased genre name.
+        const catId = app.primary_genre ? app.primary_genre.toUpperCase().replace(/[^A-Z0-9]+/g, "_") : null;
+        combos.set(`android|${country}|APPLICATION|default`, { platform: "android", country, category: "APPLICATION", chart: "default" });
+        if (catId) combos.set(`android|${country}|${catId}|default`, { platform: "android", country, category: catId, chart: "default" });
+      }
+    }
+  }
+
+  const jobId = await startJob("charts", { date: RUN_DATE }, combos.size);
+  const jobWarnings = [];
+  let done = 0;
+  let rowsWritten = 0;
+
+  log(`1½. charts — ${combos.size} (store, country, category, chart) snapshot(s)`);
+
+  for (const combo of combos.values()) {
+    if (outOfTime()) { jobWarnings.push(`charts stopped at ${done}/${combos.size} — budget exhausted.`); break; }
+    try {
+      if (DRY) { done++; continue; }
+
+      const entries = combo.platform === "ios"
+        ? await appleChartsRSS(combo.country, combo.genreId, combo.chart, 100)
+        : await playCategoryRanking(combo.category, combo.country);
+      if (!entries.length) { jobWarnings.push(`charts ${combo.platform}/${combo.country}/${combo.category}/${combo.chart}: empty`); await bumpJob(jobId, ++done); continue; }
+
+      // Thin app upsert + entries, both batched (same round-trip rule as persistSerp).
+      const appValues = [];
+      const appParams = [];
+      entries.forEach((e, i) => {
+        const base = i * 4;
+        appValues.push(`($${base + 1},$${base + 2},$${base + 3},$${base + 4})`);
+        appParams.push(combo.platform, String(e.store_id), e.name ?? `(app ${e.store_id})`, e.developer_name ?? null);
+      });
+      const appRows = await q(
+        db,
+        `insert into apps (platform, store_id, name, developer_name)
+         values ${appValues.join(",")}
+         on conflict (platform, store_id) do update set
+           name = coalesce(excluded.name, apps.name),
+           developer_name = coalesce(excluded.developer_name, apps.developer_name),
+           updated_at = now()
+         returning id, store_id`,
+        appParams,
+      );
+      const idByStoreId = new Map(appRows.map((r) => [String(r.store_id), r.id]));
+
+      const values = [];
+      const params = [];
+      let n = 0;
+      for (const e of entries) {
+        const appId = idByStoreId.get(String(e.store_id));
+        if (!appId) continue;
+        const base = n * 7;
+        values.push(`($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7})`);
+        params.push(combo.platform, combo.country, combo.category, combo.chart, RUN_DATE, e.rank, appId);
+        n++;
+      }
+      if (n) {
+        await db.query(
+          `insert into chart_entries (platform, country, category, chart, captured_on, rank, app_id)
+           values ${values.join(",")}
+           on conflict (platform, country, category, chart, captured_on, rank) do update set app_id = excluded.app_id`,
+          params,
+        );
+        rowsWritten += n;
+      }
+    } catch (err) {
+      jobWarnings.push(`charts ${combo.platform}/${combo.country}/${combo.category}: ${err.message}`);
+    }
+    await bumpJob(jobId, ++done);
+  }
+
+  log(`   ${rowsWritten} chart row(s)${jobWarnings.length ? `, ${jobWarnings.length} warning(s)` : ""}`);
+  await finishJob(jobId, jobWarnings.length ? "partial" : "done", jobWarnings);
+  warnings.push(...jobWarnings);
+}
+
+// ===========================================================================
 // JOB 1b — revenue: real scraped IAP prices → app_iaps + revenue_estimates
 // ===========================================================================
 /**
@@ -536,6 +645,77 @@ if (JOBS.includes("asc_sync")) {
 }
 
 // ===========================================================================
+// JOB 1d — play_sync: REAL Play search terms from the Console GCS bucket (Workstream I)
+// The one capability the reference product doesn't have: measured queries with conversion
+// data. Monthly files with daily rows and a 3-7 day lag; current + previous month are
+// re-fetched every run and upserted, which makes the lag self-healing and the job idempotent.
+// ===========================================================================
+if (JOBS.includes("play_sync")) {
+  const { loadServiceAccount, serviceAccountToken, listReportObjects, downloadObject, decodeUtf16, parseSearchTerms } =
+    await import("../lib/stores/play-console.mjs");
+
+  const sa = loadServiceAccount();
+  const bucket = process.env.PLAY_GCS_BUCKET;
+  if (!sa || !bucket) {
+    warnings.push("PLAY_SERVICE_ACCOUNT_FILE / PLAY_GCS_BUCKET not set — Play real search terms are skipped. (Bucket URI comes from Play Console → Download reports → Copy Cloud Storage URI; access via Play Console's user list, NOT Cloud IAM — 02 §7.1.)");
+  } else {
+    const ownAndroid = trackedApps.filter((a) => a.role === "own" && a.platform === "android");
+    const jobId = await startJob("play_sync", { date: RUN_DATE }, ownAndroid.length);
+    const jobWarnings = [];
+    let done = 0;
+    let rowsWritten = 0;
+
+    log(`1d. play_sync — ${ownAndroid.length} Android app(s)`);
+
+    try {
+      const token = DRY ? null : await serviceAccountToken(sa);
+
+      // Current + previous month cover the posting lag.
+      const months = [0, 1].map((back) => {
+        const d = new Date(`${RUN_DATE}T00:00:00Z`);
+        d.setUTCMonth(d.getUTCMonth() - back);
+        return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+      });
+
+      for (const app of ownAndroid) {
+        try {
+          if (DRY) { done++; continue; }
+          for (const month of months) {
+            const name = `stats/store_performance/store_performance_${app.store_id}_${month}_traffic_source.csv`;
+            const found = await listReportObjects(token, bucket, name);
+            if (!found.length) continue; // month not posted yet — the lag, not an error
+            const bytes = await downloadObject(token, bucket, found[0]);
+            const terms = parseSearchTerms(decodeUtf16(bytes));
+
+            for (const t of terms) {
+              const res = await db.query(
+                `insert into play_search_terms (package_name, day, search_term, visitors, acquisitions, conversion_rate)
+                 values ($1,$2,$3,$4,$5,$6)
+                 on conflict (package_name, day, search_term) do update set
+                   visitors = excluded.visitors, acquisitions = excluded.acquisitions,
+                   conversion_rate = excluded.conversion_rate, fetched_at = now()`,
+                [t.package_name, t.day, t.search_term, t.visitors, t.acquisitions, t.conversion_rate],
+              );
+              rowsWritten += res.rowCount ?? 0;
+            }
+          }
+        } catch (err) {
+          jobWarnings.push(`play_sync ${app.name}: ${err.message}`);
+        }
+        await bumpJob(jobId, ++done);
+      }
+    } catch (err) {
+      // Token failure degrades the whole feature for today, never the crawl.
+      jobWarnings.push(`play_sync auth: ${err.message}`);
+    }
+
+    log(`   ${rowsWritten} search-term row(s)${jobWarnings.length ? `, ${jobWarnings.length} warning(s)` : ""}`);
+    await finishJob(jobId, jobWarnings.length ? "partial" : "done", jobWarnings);
+    warnings.push(...jobWarnings);
+  }
+}
+
+// ===========================================================================
 // JOB 2 — rank_check: THE UNIQUE-KEYWORD LOOP
 // ===========================================================================
 /**
@@ -652,25 +832,10 @@ if (JOBS.includes("rank_check")) {
       }
 
       // --- the SERP itself, for difficulty / outliers / the icon strip -----
-      await persistSerp(kw, top);
+      await persistSerp(dbq, kw, top, RUN_DATE);
 
       // --- difficulty, from the response we ALREADY have. No extra call. --
-      const diff = difficulty({ top: top.slice(0, 10), term: kw.term, serpDepth: depth, platform: kw.platform });
-      const outlier = serpOutlier({ top: top.slice(0, 10), platform: kw.platform });
-      const beat = beatable({ top: top.slice(0, 10), term: kw.term, platform: kw.platform });
-
-      await db.query(
-        `update keywords set difficulty = $2, difficulty_parts = $3::jsonb, serp_depth = $4,
-                             serp_outlier = $5, metrics_updated_at = now()
-          where id = $1`,
-        [
-          kw.keyword_id,
-          diff.value,
-          JSON.stringify({ ...(diff.parts ?? {}), outlier: outlier.apps, beatable: beat.evidence, beatable_value: beat.value }),
-          depth,
-          outlier.value === true,
-        ],
-      );
+      await updateKeywordSerpMetrics(dbq, kw, { top, depth });
     } catch (err) {
       // A 403 cooldown must degrade ONE keyword, not halt the crawl. And we must never write
       // a rank=null row that looks like "checked and absent" when the truth is "we could not
@@ -684,150 +849,6 @@ if (JOBS.includes("rank_check")) {
   log(`   ${done}/${queue.length} keywords, ${ranksWritten} ranking rows${jobWarnings.length ? `, ${jobWarnings.length} warning(s)` : ""}`);
   await finishJob(jobId, jobWarnings.length ? "partial" : "done", jobWarnings);
   warnings.push(...jobWarnings);
-}
-
-async function fetchIosSerp(kw) {
-  const serp = await appleSearchRanked(kw.term, kw.country);
-  if (!serp.ids.length) return { orderedIds: [], top: [], depth: 0 };
-
-  // Provenance check: Apple echoes back which store it actually served. A mismatch means US
-  // data would be silently labelled as another country — nearly invisible, and it poisons
-  // every downstream metric.
-  if (serp.storeFront && serp.requestedStoreFront && serp.storeFront !== serp.requestedStoreFront) {
-    throw new Error(`storefront mismatch: asked ${serp.requestedStoreFront}, Apple served ${serp.storeFront}`);
-  }
-
-  // Only 8 apps arrive hydrated; ranks 9-250 need /lookup, which is effectively unthrottled
-  // and batches 200 per call.
-  const top30 = serp.ids.slice(0, 30);
-  const meta = await appleLookup(top30, kw.country);
-  const byId = new Map(meta.map((m) => [m.store_id, m]));
-  const subtitles = new Map(serp.hydrated.map((h) => [h.store_id, h.subtitle]));
-
-  const top = top30.map((id, i) => {
-    const m = byId.get(id);
-    return {
-      position: i + 1,
-      store_id: id,
-      name: m?.name ?? null,
-      subtitle: subtitles.get(id) ?? null,
-      rating_count: m?.rating_count ?? null,
-      rating_average: m?.rating_average ?? null,
-      meta: m ?? null,
-    };
-  });
-
-  return { orderedIds: serp.ids, top, depth: serp.ids.length };
-}
-
-async function fetchAndroidSerp(kw) {
-  const rows = await playSearchRanked(kw.term, kw.country);
-  if (!rows.length) return { orderedIds: [], top: [], depth: 0 };
-
-  // Android difficulty uses REAL INSTALLS rather than the rating-count proxy iOS is stuck
-  // with, so the top 10 get a detail fetch. Play has no batch endpoint, hence the cap.
-  const top = [];
-  for (const row of rows.slice(0, 30)) {
-    let detail = null;
-    if (row.rank <= 10) detail = await playAppDetail(row.store_id, kw.country).catch(() => null);
-    top.push({
-      position: row.rank,
-      store_id: row.store_id,
-      name: detail?.name ?? null,
-      subtitle: detail?.summary ?? null,
-      rating_count: detail?.rating_count ?? null,
-      rating_average: detail?.rating_average ?? row.rating_average ?? null,
-      real_installs: detail?.real_installs ?? null,
-      meta: detail,
-    });
-  }
-
-  return { orderedIds: rows.map((r) => r.store_id), top, depth: rows.length };
-}
-
-/**
- * Persists one SERP in TWO round trips instead of sixty.
- *
- * The naive loop did `upsertApp` + one insert per row, so a 30-row SERP cost 60 sequential
- * round trips. Against Neon that measured at 72ms each — 4.3 seconds per keyword of pure
- * database latency, versus about 1 second of actual upstream work. The rate limiter was
- * never the dominant cost here; the round trips were.
- *
- * Batching both into multi-row statements is what actually shortens the nightly run, and it
- * is the difference between the crawl scaling with network politeness and scaling with
- * network latency × row count.
- */
-async function persistSerp(kw, top) {
-  const rows = top.filter((r) => r.store_id);
-  if (!rows.length) return;
-
-  // --- 1. every app in one statement --------------------------------------
-  const appCols = 8;
-  const appValues = [];
-  const appParams = [];
-  rows.forEach((row, i) => {
-    const m = row.meta ?? {};
-    const base = i * appCols;
-    appValues.push(`($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8})`);
-    appParams.push(
-      kw.platform,
-      String(row.store_id),
-      row.name ?? m.name ?? `(app ${row.store_id})`,
-      m.bundle_id ?? null,
-      m.developer_name ?? null,
-      m.developer_id ?? null,
-      m.icon_url ?? null,
-      m.primary_genre ?? null,
-    );
-  });
-
-  const { rows: appRows } = await db.query(
-    `insert into apps (platform, store_id, name, bundle_id, developer_name, developer_id, icon_url, primary_genre)
-     values ${appValues.join(",")}
-     on conflict (platform, store_id) do update set
-       -- coalesce so a thin SERP row never blanks a field a richer source already filled
-       name           = coalesce(excluded.name, apps.name),
-       bundle_id      = coalesce(excluded.bundle_id, apps.bundle_id),
-       developer_name = coalesce(excluded.developer_name, apps.developer_name),
-       developer_id   = coalesce(excluded.developer_id, apps.developer_id),
-       icon_url       = coalesce(excluded.icon_url, apps.icon_url),
-       primary_genre  = coalesce(excluded.primary_genre, apps.primary_genre),
-       updated_at     = now()
-     returning id, store_id`,
-    appParams,
-  );
-  const idByStoreId = new Map(appRows.map((r) => [String(r.store_id), r.id]));
-
-  // --- 2. every SERP position in one statement ------------------------------
-  const serpCols = 7;
-  const serpValues = [];
-  const serpParams = [];
-  let n = 0;
-  for (const row of rows) {
-    const appId = idByStoreId.get(String(row.store_id));
-    if (!appId) continue;
-    const base = n * serpCols;
-    serpValues.push(`($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7})`);
-    serpParams.push(kw.keyword_id, RUN_DATE, row.position, appId, row.rating_count, row.rating_average, titleMatchOf(row.name, kw.term));
-    n++;
-  }
-  if (!n) return;
-
-  await db.query(
-    `insert into serp_results (keyword_id, captured_on, position, app_id, rating_count, rating_average, title_match)
-     values ${serpValues.join(",")}
-     on conflict (keyword_id, captured_on, position) do update set
-       app_id = excluded.app_id, rating_count = excluded.rating_count,
-       rating_average = excluded.rating_average, title_match = excluded.title_match`,
-    serpParams,
-  );
-}
-
-function titleMatchOf(name, term) {
-  if (!name) return null;
-  const bag = new Set(String(name).normalize("NFKC").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean));
-  const words = String(term).normalize("NFKC").toLowerCase().split(/\s+/).filter(Boolean);
-  return words.length > 0 && words.every((w) => bag.has(w));
 }
 
 // ===========================================================================
@@ -1118,6 +1139,29 @@ async function discoverFor(app, jobWarnings) {
     if (cs) addAll(extractListingKeywords(cs, { max: 25 }).map((k) => k.term), "competitor");
   }
 
+  // Source C½ — per-competitor AI keyword footprint (E2), refreshed WEEKLY (Mondays) to
+  // keep the token cost one-day-in-seven. Add-competitor runs the same scan immediately,
+  // so this only picks up drift in listings that changed since.
+  if (aiEnabled() && new Date(`${RUN_DATE}T00:00:00Z`).getUTCDay() === 1) {
+    const ownName = await q1(db, `select name from apps where id = $1`, [app.app_id]);
+    for (const c of competitors) {
+      if (outOfTime()) break;
+      try {
+        const cMeta = await q1(db, `select name, platform, store_id from apps where id = $1`, [c.app_id]);
+        if (!cMeta) continue;
+        await scanCompetitor(dbq, {
+          workspaceId: app.workspace_id,
+          ownTrackedAppId: app.tracked_app_id,
+          ownAppName: ownName?.name ?? "",
+          competitor: cMeta,
+          countries,
+        });
+      } catch (err) {
+        jobWarnings.push(`discovery competitor_ai ${app.name}: ${err.message}`);
+      }
+    }
+  }
+
   // Source D — similar apps' subtitles from the SSR page (iOS), which are keyword-indexed.
   if (app.platform === "ios") {
     try {
@@ -1130,16 +1174,7 @@ async function discoverFor(app, jobWarnings) {
 
   // Source E — category charts. Chart apps' subtitles are keyword-indexed like Source D's;
   // this source was deferred until the relevance pass below existed to gate its noise.
-  // The root charts page no longer serves the live category list, so the decade-stable
-  // Apple genre ids are mapped here (apps only — Games charts use a different URL shape).
-  const APPLE_GENRE_IDS = {
-    "books": 6018, "business": 6000, "developer tools": 6026, "education": 6017,
-    "entertainment": 6016, "finance": 6015, "food & drink": 6023, "graphics & design": 6027,
-    "health & fitness": 6013, "lifestyle": 6012, "magazines & newspapers": 6021,
-    "medical": 6020, "music": 6011, "navigation": 6010, "news": 6009,
-    "photo & video": 6008, "productivity": 6007, "reference": 6006, "shopping": 6024,
-    "social networking": 6005, "sports": 6004, "travel": 6003, "utilities": 6002, "weather": 6001,
-  };
+  // (APPLE_GENRE_IDS lives at module scope — the charts snapshot job shares it.)
   if (app.platform === "ios" && app.primary_genre) {
     const genreId = APPLE_GENRE_IDS[app.primary_genre.toLowerCase()];
     if (genreId) {
@@ -1293,11 +1328,14 @@ if (JOBS.includes("reviews")) {
 
   log("6. reviews");
   for (const app of trackedApps) {
-    if (app.platform !== "ios") { await bumpJob(jobId, ++done); continue; } // Play reviews need Console credentials
     for (const country of await countriesFor(app)) {
       try {
         if (DRY) continue;
-        const { reviews } = await appleReviews(app.store_id, country, 1, "mostrecent");
+        // Android rides the brittle-but-free oCPfdb endpoint (02 §6.4); a shape break
+        // degrades one app's reviews for a day, never the crawl.
+        const { reviews } = app.platform === "ios"
+          ? await appleReviews(app.store_id, country, 1, "mostrecent")
+          : await playReviews(app.store_id, country);
         let added = 0;
         for (const r of reviews) {
           const res = await db.query(
@@ -1717,6 +1755,84 @@ if (JOBS.includes("alerts")) {
       // Not sending is a degraded feature, not a failed run — the alerts stay in the feed and
       // remain unsent so tomorrow's digest can pick them up once a key exists.
       jobWarnings.push(`digest for "${ws.name}" not sent: ${result.reason}`);
+    }
+  }
+
+  // ---- "Your week in ASO" — one summary per workspace, Mondays only ----------
+  if (new Date(`${RUN_DATE}T00:00:00Z`).getUTCDay() === 1) {
+    const { sendWeekly } = await import("../lib/digest.mjs");
+    for (const ws of workspaces) {
+      const owner = await q1(
+        db,
+        `select u.email, u.alert_email, u.alerts_paused from users u join workspaces w on w.owner_id = u.id where w.id = $1`,
+        [ws.id],
+      );
+      if (owner?.alerts_paused) continue;
+
+      // Re-run guard: a marker row in upstream_cache means this week's report went out.
+      const markerKey = `weekly-report:${ws.id}:${RUN_DATE}`;
+      const already = await q1(db, `select 1 from upstream_cache where cache_key = $1`, [markerKey]);
+      if (already) continue;
+
+      const ownApps = trackedApps.filter((a) => a.workspace_id === ws.id && a.role === "own");
+      const report = [];
+      for (const app of ownApps) {
+        const movers = await q(
+          db,
+          `select term, country, rank as to_rank, delta_7d,
+                  (rank + delta_7d) as from_rank
+             from v_tracked_keyword_rows
+            where tracked_app_id = $1 and delta_7d is not null and delta_7d <> 0
+            order by abs(delta_7d) desc
+            limit 8`,
+          [app.tracked_app_id],
+        );
+        const vis = await q(
+          db,
+          `select visibility from app_daily_metrics
+            where app_id = $1 and visibility is not null
+            order by metric_on desc limit 8`,
+          [app.app_id],
+        );
+        const disc = await q1(
+          db,
+          `select count(*)::int as count from discovered_keywords
+            where tracked_app_id = $1 and discovered_at > $2::date - 7 and not dismissed`,
+          [app.tracked_app_id, RUN_DATE],
+        );
+        const discTop = await q(
+          db,
+          `select k.term from discovered_keywords d join keywords k on k.id = d.keyword_id
+            where d.tracked_app_id = $1 and d.discovered_at > $2::date - 7 and not d.dismissed
+            order by d.opportunity desc nulls last limit 5`,
+          [app.tracked_app_id, RUN_DATE],
+        );
+        report.push({
+          name: app.name,
+          platform: app.platform,
+          visibility: vis[0]?.visibility != null ? Number(vis[0].visibility) : null,
+          visibility_prev: vis[7]?.visibility != null ? Number(vis[7].visibility) : null,
+          movers: movers.map((m) => ({ term: m.term, country: m.country, from_rank: m.from_rank, to_rank: m.to_rank, delta: Number(m.delta_7d) })),
+          discoveries: { count: disc?.count ?? 0, top: discTop.map((t) => t.term) },
+        });
+      }
+
+      const result = await sendWeekly({
+        to: owner?.alert_email || owner?.email,
+        workspaceName: ws.name,
+        weekEnd: RUN_DATE,
+        apps: report,
+      });
+      if (result.sent) {
+        await db.query(
+          `insert into upstream_cache (cache_key, payload, expires_at) values ($1,'{}'::jsonb, now() + interval '8 days')
+           on conflict (cache_key) do nothing`,
+          [markerKey],
+        );
+        log(`   weekly report sent to ${owner?.alert_email || owner?.email}`);
+      } else {
+        jobWarnings.push(`weekly report for "${ws.name}" not sent: ${result.reason}`);
+      }
     }
   }
 

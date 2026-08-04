@@ -93,6 +93,22 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
       </div>
 
       <div className="space-y-4 p-6">
+        {aiAnalysis && Array.isArray((aiAnalysis as any).changes) && (aiAnalysis as any).changes.length > 0 && (
+          <Panel title="Since the previous analysis" caption="Complaint themes compared against the last run.">
+            <ul className="grid gap-2 lg:grid-cols-2">
+              {((aiAnalysis as any).changes as { theme: string; status: string; detail: string }[]).map((c) => (
+                <li key={c.theme} className="text-[12px]">
+                  <p className="flex items-center gap-2">
+                    <Chip tone={c.status === "resolved" || c.status === "improving" ? "beatable" : c.status === "new" ? "warn" : "neutral"}>{c.status}</Chip>
+                    <span className="font-medium">{c.theme}</span>
+                  </p>
+                  <p className="mt-0.5 text-[var(--fg-muted)]">{c.detail}</p>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        )}
+
         {aiAnalysis && (
           <div className="grid gap-3 lg:grid-cols-3">
             {(["praise", "complaints", "feature_requests"] as const).map((group) => (

@@ -1,8 +1,10 @@
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { KeywordsTable } from "@/components/KeywordsTable";
 import { DiscoveredTable } from "@/components/DiscoveredTable";
-import { EmptyState, StalenessNote } from "@/components/ui";
-import { listKeywords, listDiscovered, getCountries, getStaleness } from "@/lib/queries";
+import { EmptyState, StalenessNote, Panel, Chip } from "@/components/ui";
+import { AiButton } from "@/components/AiButton";
+import { listKeywords, listDiscovered, getCountries, getStaleness, getPlaySearchTerms } from "@/lib/queries";
+import { trackTermsFromAnalysis } from "@/app/actions/keywords";
 import { AddAppDialog, AddKeywordsDialog } from "@/components/AddDialog";
 import Link from "next/link";
 
@@ -26,11 +28,12 @@ export default async function KeywordsPage({ searchParams }: { searchParams: Pro
     );
   }
 
-  const [rows, discovered, countries, staleness] = await Promise.all([
+  const [rows, discovered, countries, staleness, playTerms] = await Promise.all([
     listKeywords(active.tracked_app_id, active.app_id),
     listDiscovered(active.tracked_app_id, active.app_id),
     getCountries(active.tracked_app_id),
     getStaleness(active.app_id),
+    active.platform === "android" ? getPlaySearchTerms(active.store_id) : Promise.resolve([]),
   ]);
 
   return (
@@ -78,6 +81,46 @@ export default async function KeywordsPage({ searchParams }: { searchParams: Pro
         (rows/discovered/countries are all awaited above), so the boundary bought nothing and
         cost the entire page. /rankings and /reviews render the same tables without one.
       */}
+      {playTerms.length > 0 && tab === "tracked" && (
+        <div className="px-6 pt-4">
+          <Panel
+            title="Real search terms (Play)"
+            caption="MEASURED data from your Play Console — the actual queries that drove store visits, with conversion. Everything else on this page is modelled; these are ground truth. 'Other' is Google's low-volume rollup."
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-[var(--border)]">
+                    {["Search term", "Visitors (60d)", "Installs (60d)", "CVR", ""].map((h, i) => (
+                      <th key={i} scope="col" className="th px-3 py-2 text-left whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {playTerms.map((t) => (
+                    <tr key={t.search_term} className="border-b border-[var(--border)]">
+                      <td className="num px-3 py-1.5">
+                        {t.search_term} <Chip tone="beatable">measured</Chip>
+                      </td>
+                      <td className="num px-3 py-1.5">{t.visitors ?? "—"}</td>
+                      <td className="num px-3 py-1.5">{t.acquisitions ?? "—"}</td>
+                      <td className="num px-3 py-1.5">{t.cvr != null ? `${t.cvr}%` : "—"}</td>
+                      <td className="px-3 py-1.5 text-right">
+                        {t.search_term.toLowerCase() === "other" ? null : t.tracked ? (
+                          <Chip tone="branded">Tracked</Chip>
+                        ) : (
+                          <AiButton label="Track" pendingLabel="Tracking…" action={trackTermsFromAnalysis.bind(null, active.tracked_app_id, [t.search_term])} />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        </div>
+      )}
+
       {tab === "discovered" ? (
         <DiscoveredTable
           rows={discovered as any}

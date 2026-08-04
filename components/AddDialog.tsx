@@ -322,7 +322,7 @@ function AddKeywordsBody({ trackedAppId, countries }: { trackedAppId: string; co
           <span className="num">{result.added}</span> added
           {result.alreadyTracked ? <> · <span className="num">{result.alreadyTracked}</span> already tracked</> : null}
           {result.failed.length ? <> · <span className="num">{result.failed.length}</span> rejected</> : null}
-          . Popularity and difficulty fill in on the next crawl; rank needs one SERP pass.
+          . Popularity and difficulty are computing now — refresh in about a minute. Rank fills in on the nightly SERP pass.
         </p>
       )}
     </div>

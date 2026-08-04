@@ -24,7 +24,9 @@ export default async function RankingsPage() {
     getAnnotations(active.tracked_app_id, 90),
   ]);
 
-  const history = await getRankHistory(active.app_id, rows.map((r) => r.keyword_id), 90);
+  // 365 days so every range in the chart's picker has data behind it; the payload stays
+  // small (one row per keyword-day) and the client filters down from here.
+  const history = await getRankHistory(active.app_id, rows.map((r) => r.keyword_id), 365);
 
   return (
     <AppShell current="/rankings">

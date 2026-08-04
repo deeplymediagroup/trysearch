@@ -2,6 +2,7 @@ import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { ListingManager } from "@/components/ListingManager";
 import { EmptyState } from "@/components/ui";
 import { getListings, getLatestSnapshot, getCountries, getTargetKeywords } from "@/lib/queries";
+import { autoFillTargets } from "@/app/actions/keywords";
 
 export const metadata = { title: "Listing Manager — trysearch" };
 export const dynamic = "force-dynamic";
@@ -62,6 +63,7 @@ export default async function ListingManagerPage() {
         screenshots={(primary?.screenshot_urls ?? []) as string[]}
         iconUrl={active.icon_url}
         targets={targets as any}
+        autoFill={autoFillTargets.bind(null, active.tracked_app_id, listings[0]?.locale ?? "en-US")}
       />
     </AppShell>
   );
