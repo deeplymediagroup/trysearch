@@ -458,9 +458,11 @@ export async function getKeywordDetail(trackedKeywordId: string) {
       [kw.keyword_id],
     ),
     q<{ position: number; name: string | null; icon_url: string | null; subtitle: string | null; rating_count: number | null; rating_average: string | null; title_match: boolean | null; store_id: string | null }>(
-      `select sr.position, a.name, a.icon_url, a.subtitle, sr.rating_count, sr.rating_average, sr.title_match, a.store_id
+      // subtitle lives on app_snapshots, not apps — take the latest one.
+      `select sr.position, a.name, a.icon_url, s.subtitle, sr.rating_count, sr.rating_average, sr.title_match, a.store_id
          from serp_results sr
          join apps a on a.id = sr.app_id
+         left join lateral (select subtitle from app_snapshots where app_id = a.id order by captured_on desc limit 1) s on true
         where sr.keyword_id = $1
           and sr.captured_on = (select max(captured_on) from serp_results where keyword_id = $1)
         order by sr.position
