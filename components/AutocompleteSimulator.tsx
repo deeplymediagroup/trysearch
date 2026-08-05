@@ -23,37 +23,40 @@ export function AutocompleteSimulator({ countries, defaultPlatform = "ios", ownA
   const [tab, setTab] = useState<"live" | "reveal">("live");
   const [platform, setPlatform] = useState<"ios" | "android">(defaultPlatform);
   const [country, setCountry] = useState(countries[0] ?? "us");
-  const [dark, setDark] = useState(true);
+  const [dark, setDark] = useState(false);
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-6 py-2.5">
-        <div className="flex items-center gap-1 rounded-[var(--radius-chip)] border border-[var(--border)] p-0.5">
+      <div className="flex flex-wrap items-center gap-4 border-b border-[var(--border)] px-6">
+        {/* Underline tabs on the left, store controls pushed right — reference layout. */}
+        <div className="flex items-center gap-4">
           {(["live", "reveal"] as const).map((t) => (
-            <button key={t} type="button" onClick={() => setTab(t)} aria-pressed={tab === t} className={`rounded-[5px] px-2 py-0.5 text-[12px] ${tab === t ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--fg-muted)]"}`}>
+            <button key={t} type="button" onClick={() => setTab(t)} aria-pressed={tab === t} className={`-mb-px border-b-2 px-0.5 py-2.5 text-[12.5px] ${tab === t ? "border-[var(--fg)] font-medium text-[var(--fg)]" : "border-transparent text-[var(--fg-muted)]"}`}>
               {t === "live" ? "Live search" : "Keyword reveal"}
             </button>
           ))}
         </div>
 
-        <div className="flex items-center gap-1 rounded-[var(--radius-chip)] border border-[var(--border)] p-0.5">
-          {(["ios", "android"] as const).map((p) => (
-            <button key={p} type="button" onClick={() => setPlatform(p)} aria-pressed={platform === p} className={`rounded-[5px] px-2 py-0.5 text-[12px] ${platform === p ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--fg-muted)]"}`}>
-              {p === "ios" ? "iOS" : "Android"}
-            </button>
-          ))}
+        <div className="ml-auto flex flex-wrap items-center gap-2 py-2">
+          <div className="flex h-8 items-center gap-0.5 rounded-[8px] border border-[var(--border)] p-0.5">
+            {(["ios", "android"] as const).map((p) => (
+              <button key={p} type="button" onClick={() => setPlatform(p)} aria-pressed={platform === p} className={`h-full rounded-[6px] px-2.5 text-[12px] ${platform === p ? "bg-[var(--bg-hover)] font-medium text-[var(--fg)]" : "text-[var(--fg-muted)]"}`}>
+                {p === "ios" ? "iOS" : "Android"}
+              </button>
+            ))}
+          </div>
+
+          <select value={country} onChange={(e) => setCountry(e.target.value)} aria-label="Country" className="h-8 rounded-[8px] border border-[var(--border)] bg-[var(--bg-elevated)] px-2 text-[12px] text-[var(--fg-muted)]">
+            {[...new Set([...countries, "us", "gb", "de", "jp"])].map((c) => (
+              <option key={c} value={c}>{c.toUpperCase()}</option>
+            ))}
+          </select>
+
+          <label className="flex items-center gap-1.5 text-[12px] text-[var(--fg-muted)]">
+            <input type="checkbox" role="switch" aria-checked={dark} checked={dark} onChange={(e) => setDark(e.target.checked)} />
+            Store dark mode
+          </label>
         </div>
-
-        <select value={country} onChange={(e) => setCountry(e.target.value)} aria-label="Country" className="h-7 rounded-[var(--radius-chip)] border border-[var(--border)] bg-[var(--bg-elevated)] px-1.5 text-[12px] text-[var(--fg-muted)]">
-          {[...new Set([...countries, "us", "gb", "de", "jp"])].map((c) => (
-            <option key={c} value={c}>{c.toUpperCase()}</option>
-          ))}
-        </select>
-
-        <label className="flex items-center gap-1.5 text-[12px] text-[var(--fg-muted)]">
-          <input type="checkbox" role="switch" aria-checked={dark} checked={dark} onChange={(e) => setDark(e.target.checked)} />
-          Store dark mode
-        </label>
       </div>
 
       <div className="p-6">{tab === "live" ? <LiveSearch platform={platform} country={country} dark={dark} ownApps={ownApps} /> : <KeywordReveal platform={platform} country={country} />}</div>
@@ -121,21 +124,35 @@ function LiveSearch({ platform, country, dark, ownApps }: { platform: "ios" | "a
       </PhoneFrame>
 
       <div className="min-w-[280px] flex-1 space-y-3">
-        <Panel title="What you're looking at" caption={source ?? "Type in the phone frame to query the live store."}>
-          <p className="text-[12px] text-[var(--fg-muted)]">
-            Every keystroke queries the live store autocomplete, then we enrich each suggestion with its cached
-            popularity and difficulty. Keystrokes are debounced and each prefix is cached for 6 hours.
-          </p>
-          <ul className="mt-3 space-y-1 text-[11px] text-[var(--fg-subtle)]">
-            <li>· The ORDER is the demand signal — Apple ranks suggestions by search popularity.</li>
-            <li>· Apple caps at exactly 10 suggestions; the Play Store&apos;s own suggest caps at exactly 5.</li>
-            <li>· ( ) means the number is our estimate. — means we have not measured it.</li>
-          </ul>
-          {loading && <p className="mt-2 text-[11px] text-[var(--accent)]">Querying the store…</p>}
-        </Panel>
+        {/* The big query input mirrors the phone's field — type in either. */}
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={'Type a query the way a user would — "fit", "sleep so"…'}
+          aria-label="Store query"
+          className="h-9 w-full rounded-[10px] border border-[var(--border)] bg-[var(--bg)] px-3 text-[12.5px]"
+        />
+
+        {suggestions.length === 0 && (
+          <div className="flex min-h-[320px] flex-col items-center justify-center gap-2 rounded-[var(--radius)] border border-dashed border-[var(--border)] px-6 py-10 text-center">
+            <span aria-hidden className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[16px] text-[var(--accent)]">⌕</span>
+            <p className="mt-1 text-[13px] font-semibold text-[var(--fg)]">
+              {value.trim() ? "No suggestions for this prefix." : "Start typing to see the store's suggestions"}
+            </p>
+            <p className="max-w-sm text-[12px] text-[var(--fg-muted)]">
+              Every keystroke queries the live store autocomplete, then each suggestion is enriched with its cached
+              popularity and difficulty. Keystrokes are debounced and each prefix is cached for 6 hours.
+            </p>
+            <p className="max-w-sm text-[11px] text-[var(--fg-subtle)]">
+              The ORDER is the demand signal — Apple caps at 10 suggestions, Play at 5. ( ) means our estimate;
+              — means not measured.
+            </p>
+            {loading && <p className="text-[11px] text-[var(--accent)]">Querying the store…</p>}
+          </div>
+        )}
 
         {suggestions.length > 0 && (
-          <Panel title={`${suggestions.length} suggestions`} caption="Position in this list is itself a demand signal. Click one for its live top-10 SERP.">
+          <Panel title={`${suggestions.length} suggestions`} caption={`${source ? `${source} · ` : ""}Position in this list is itself a demand signal. Click one for its live top-10 SERP.`}>
             <ol className="space-y-1">
               {suggestions.map((s, i) => (
                 <li key={s.term}>
@@ -264,13 +281,13 @@ function KeywordReveal({ platform, country }: { platform: "ios" | "android"; cou
             onChange={(e) => setTerm(e.target.value)}
             placeholder="e.g. motivational quotes"
             aria-label="Keyword to reveal"
-            className="h-8 flex-1 rounded-[var(--radius-chip)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2 text-[12.5px]"
+            className="h-9 flex-1 rounded-[10px] border border-[var(--border)] bg-[var(--bg-elevated)] px-3 text-[12.5px]"
           />
           <button
             type="button"
             disabled={pending || !term.trim()}
             onClick={() => start(async () => setResult(await keywordRevealProbe(term, platform, country)))}
-            className="h-8 rounded-[var(--radius-chip)] bg-[var(--primary)] px-3 text-[12px] font-medium text-white disabled:opacity-50"
+            className="h-9 rounded-[10px] bg-[var(--primary)] px-3.5 text-[12px] font-medium text-white disabled:opacity-50"
           >
             {pending ? "Probing…" : "Reveal"}
           </button>

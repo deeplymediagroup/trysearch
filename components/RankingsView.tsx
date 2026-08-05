@@ -11,7 +11,7 @@ import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable, FilterBar, applyFilters, useFilters } from "./DataTable";
 import { RankHistoryChart } from "./Charts";
-import { RankPill, DeltaBadge, ScoreCell, PopularityCell, CountryFlag, Sparkline, EmptyState, EstimateLegend, Panel } from "./ui";
+import { RankPill, DeltaBadge, ScoreCell, PopularityCell, CountryFlag, Sparkline, EmptyState, EstimateLegend } from "./ui";
 import * as fmt from "@/lib/format";
 import type { KeywordRow } from "@/lib/queries";
 
@@ -175,36 +175,44 @@ export function RankingsView({
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-6 py-2.5">
-        <Select value={granularity} onChange={setGranularity} label="Granularity">
-          <option value="day">Day</option>
-          <option value="week">Week</option>
-          <option value="month">Month</option>
-        </Select>
-        <Select value={range} onChange={setRange} label="Date range">
-          {RANGES.map((r) => (
-            <option key={r.value} value={r.value}>{r.label}</option>
-          ))}
-        </Select>
-        <Select value={compare} onChange={setCompare} label="Compare against">
-          <option value="off">No comparison</option>
-          <option value="prev" disabled={range === "all"}>vs previous period</option>
-          <option value="year" disabled={range === "all"}>vs same period last year</option>
-        </Select>
-        <div className="flex items-center gap-1 rounded-[var(--radius-chip)] border border-[var(--border)] p-0.5">
-          {(["keywords", "country"] as const).map((v) => (
-            <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-[5px] px-2 py-0.5 text-[12px] ${view === v ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--fg-muted)]"}`}>
-              {v === "keywords" ? "Keywords" : "By country"}
-            </button>
-          ))}
+      <div className="px-6 pb-4">
+        {/* Controls sit right-aligned above the chart, like the reference. */}
+        <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
+          <Select value={granularity} onChange={setGranularity} label="Granularity">
+            <option value="day">Day</option>
+            <option value="week">Week</option>
+            <option value="month">Month</option>
+          </Select>
+          <Select value={range} onChange={setRange} label="Date range">
+            {RANGES.map((r) => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </Select>
+          <Select value={compare} onChange={setCompare} label="Compare against">
+            <option value="off">No comparison</option>
+            <option value="prev" disabled={range === "all"}>vs previous period</option>
+            <option value="year" disabled={range === "all"}>vs same period last year</option>
+          </Select>
+          <div className="flex items-center gap-1">
+            {(["keywords", "country"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                aria-pressed={view === v}
+                className={`h-8 rounded-[8px] px-2 text-[12px] ${view === v ? "border border-[var(--border)] bg-[var(--bg-elevated)] font-medium text-[var(--fg)]" : "text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
+              >
+                {v === "keywords" ? "Keywords" : "By country"}
+              </button>
+            ))}
+          </div>
         </div>
-        <EstimateLegend />
-      </div>
 
-      <div className="p-6 pb-0">
-        <Panel title="Rank history" caption="Click ◌ on any row to plot it. Version releases appear as numbered pins.">
-          <RankHistoryChart series={series} annotations={annotations} />
-        </Panel>
+        <RankHistoryChart series={series} annotations={annotations} />
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] text-[var(--fg-subtle)]">Click ◌ on any row to plot it. Version releases appear as numbered pins.</p>
+          <EstimateLegend />
+        </div>
       </div>
 
       <FilterBar filters={filters} setFilters={setFilters} countries={countries} showType={false} />
@@ -239,7 +247,7 @@ export function RankingsView({
 
 function Select({ value, onChange, children, label }: { value: string; onChange: (v: string) => void; children: React.ReactNode; label: string }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label} className="h-7 rounded-[var(--radius-chip)] border border-[var(--border)] bg-[var(--bg-elevated)] px-1.5 text-[12px] text-[var(--fg-muted)]">
+    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label} className="h-8 rounded-[8px] border border-[var(--border)] bg-[var(--bg-elevated)] px-2 text-[12px] text-[var(--fg-muted)]">
       {children}
     </select>
   );

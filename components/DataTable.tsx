@@ -380,6 +380,7 @@ export function DataTable<T extends Record<string, any>>({
   return (
     <div>
       <div className="flex items-center justify-end gap-2 px-6 py-2">
+        <span className="num mr-auto text-[12px] text-[var(--fg-subtle)]">{total} {total === 1 ? "row" : "rows"}</span>
         <details className="relative">
           <summary className="flex h-8 cursor-pointer list-none items-center rounded-[var(--radius-chip)] border border-[var(--border)] px-2 text-[12px] text-[var(--fg-muted)]">
             Columns
@@ -446,7 +447,7 @@ export function DataTable<T extends Record<string, any>>({
             {rows.map((row) => (
               <tr key={row.id} className="border-b border-[var(--border)] hover:bg-[var(--sidebar)]">
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-3 py-2 align-middle" style={{ height: 52 }}>
+                  <td key={cell.id} className="px-3 py-2 align-middle" style={{ height: 40 }}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}

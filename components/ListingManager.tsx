@@ -45,7 +45,7 @@ export function ListingManager({
   const live = listings.filter((l) => l.status === "live");
   const drafts = listings.filter((l) => l.status === "draft");
   const [locale, setLocale] = useState(live[0]?.locale ?? listings[0]?.locale ?? "en-US");
-  const [dark, setDark] = useState(true);
+  const [dark, setDark] = useState(false);
   const [preview, setPreview] = useState<"search" | "product">("search");
   const [showPreview, setShowPreview] = useState(true);
 
@@ -108,52 +108,51 @@ export function ListingManager({
       </aside>
 
       {/* Field editor */}
-      <div className="min-w-[320px] flex-1 space-y-3">
-        <Panel
-          title={localeName(locale)}
-          caption={`Previewing the ${locale.split("-")[1] ?? "US"} storefront.`}
-          action={
-            <label className="flex items-center gap-1.5 text-[11px] text-[var(--fg-muted)]">
-              <input type="checkbox" checked={showPreview} onChange={(e) => setShowPreview(e.target.checked)} />
+      <div className="min-w-[320px] flex-1 space-y-4">
+        {/* Locale header row — reference puts the storefront name inline above the field cards. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-[14px] font-semibold text-[var(--fg)]">{localeName(locale)}</h2>
+          <span className="text-[11px] text-[var(--fg-subtle)]">previewing the {locale.split("-")[1] ?? "US"} storefront</span>
+          {!showPreview && (
+            <button
+              type="button"
+              onClick={() => setShowPreview(true)}
+              className="ml-auto h-8 rounded-[8px] border border-[var(--border)] px-2.5 text-[12px] text-[var(--fg-muted)] hover:text-[var(--fg)]"
+            >
               Show preview
-            </label>
-          }
-        >
-          <div className="rounded-[var(--radius-chip)] border border-[var(--border)] p-2.5">
-            <p className="flex items-center justify-between text-[12px] font-medium">
-              <span>Target keywords</span>
-              {autoFill && <AiButton label="Auto-fill" pendingLabel="Picking…" action={autoFill} />}
-            </p>
-            <p className="mt-0.5 text-[11px] text-[var(--fg-muted)]">
-              Pick 3 keywords this localization should rank for — #1 goes in the App Name, #2–3 in the Subtitle — and
-              we&apos;ll track them in this market. Auto-fill picks your best popularity-for-difficulty keywords.
-            </p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {[1, 2, 3].map((slot) => {
-                const t = targets.find((x) => x.slot === slot);
-                return (
-                  <span
-                    key={slot}
-                    className={`rounded-[var(--radius-chip)] border px-2 py-1 text-[11px] ${t ? "border-[var(--accent)] text-[var(--fg)]" : "border-dashed border-[var(--border)] text-[var(--fg-subtle)]"}`}
-                  >
-                    <span className="num">#{slot}</span> {t ? t.term : slot === 1 ? "→ App Name" : "→ Subtitle"}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
+            </button>
+          )}
+        </div>
 
-          <div className="mt-3 space-y-3">
-            {FIELD_ORDER.map((field) => (
-              <FieldWithBudget
-                key={field}
-                field={field}
-                value={(current as any)?.[field] ?? ""}
-                source={current?.source === "store" ? "Store page" : "App Store Connect"}
-              />
-            ))}
+        <Panel
+          title="Target keywords"
+          caption="Pick 3 keywords this localization should rank for — #1 goes in the App Name, #2–3 in the Subtitle — and we'll track them in this market. Auto-fill picks your best popularity-for-difficulty keywords."
+          action={autoFill && <AiButton label="Auto-fill" pendingLabel="Picking…" action={autoFill} />}
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {[1, 2, 3].map((slot) => {
+              const t = targets.find((x) => x.slot === slot);
+              return (
+                <span
+                  key={slot}
+                  className={`rounded-[8px] border px-2 py-1 text-[11px] ${t ? "border-[var(--accent)] text-[var(--fg)]" : "border-dashed border-[var(--border)] text-[var(--fg-subtle)]"}`}
+                >
+                  <span className="num">#{slot}</span> {t ? t.term : slot === 1 ? "→ App Name" : "→ Subtitle"}
+                </span>
+              );
+            })}
           </div>
         </Panel>
+
+        {/* One card per field — reference renders each listing field as its own bordered card. */}
+        {FIELD_ORDER.map((field) => (
+          <FieldWithBudget
+            key={field}
+            field={field}
+            value={(current as any)?.[field] ?? ""}
+            source={current?.source === "store" ? "Store page" : "App Store Connect"}
+          />
+        ))}
       </div>
 
       {/* Store preview */}
@@ -161,19 +160,28 @@ export function ListingManager({
         <div className="w-[320px] shrink-0 space-y-2">
           <div className="flex items-center gap-2">
             <p className="th flex-1">Store preview</p>
-            <div className="flex items-center gap-1 rounded-[var(--radius-chip)] border border-[var(--border)] p-0.5">
+            <button
+              type="button"
+              onClick={() => setShowPreview(false)}
+              className="text-[11px] text-[var(--fg-subtle)] hover:text-[var(--fg)]"
+            >
+              Hide ↑
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex h-8 items-center gap-0.5 rounded-[8px] border border-[var(--border)] p-0.5">
               {(["search", "product"] as const).map((p) => (
-                <button key={p} type="button" onClick={() => setPreview(p)} aria-pressed={preview === p} className={`rounded-[4px] px-1.5 py-0.5 text-[11px] ${preview === p ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--fg-muted)]"}`}>
+                <button key={p} type="button" onClick={() => setPreview(p)} aria-pressed={preview === p} className={`h-full rounded-[6px] px-2 text-[11px] ${preview === p ? "bg-[var(--bg-hover)] font-medium text-[var(--fg)]" : "text-[var(--fg-muted)]"}`}>
                   {p === "search" ? "Search results" : "Product page"}
                 </button>
               ))}
             </div>
+            <label className="ml-auto flex items-center gap-1.5 text-[11px] text-[var(--fg-muted)]">
+              <input type="checkbox" role="switch" aria-checked={dark} checked={dark} onChange={(e) => setDark(e.target.checked)} />
+              Store dark mode
+            </label>
           </div>
-
-          <label className="flex items-center gap-1.5 text-[11px] text-[var(--fg-muted)]">
-            <input type="checkbox" role="switch" aria-checked={dark} checked={dark} onChange={(e) => setDark(e.target.checked)} />
-            Store dark mode
-          </label>
 
           <PhoneFrame dark={dark} label="App Store search result preview">
             <StoreSearchResultMock
@@ -211,13 +219,13 @@ function FieldWithBudget({ field, value, source }: { field: keyof typeof FIELD_L
   const long = meta.limit > 200;
 
   return (
-    <div>
-      <div className="mb-1 flex flex-wrap items-center gap-2">
-        <label htmlFor={`f-${field}`} className="text-[12px] font-medium">{meta.label}</label>
-        <Chip tone={meta.indexed ? "beatable" : "neutral"} title={meta.indexed ? "Store search indexes this field." : "Not indexed by store search — it converts, it does not rank."}>
-          {meta.indexed ? "indexed" : "not indexed"}
-        </Chip>
-        <span className="text-[10px] text-[var(--fg-subtle)]">{source}</span>
+    <section className="panel p-4">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <label htmlFor={`f-${field}`} className="text-[13px] font-semibold">{meta.label}</label>
+        <Chip tone="neutral">{source}</Chip>
+        {!meta.indexed && (
+          <Chip tone="neutral" title="Not indexed by store search — it converts, it does not rank.">not indexed</Chip>
+        )}
         <span className={`num ml-auto text-[11px] ${over ? "text-[var(--down)]" : near ? "text-[var(--warn)]" : "text-[var(--fg-subtle)]"}`}>
           {used}/{meta.limit}
         </span>
@@ -248,7 +256,7 @@ function FieldWithBudget({ field, value, source }: { field: keyof typeof FIELD_L
         </p>
       )}
       {over && <p className="mt-1 text-[10px] text-[var(--down)]">{used - meta.limit} character(s) over the limit — the store will reject this.</p>}
-    </div>
+    </section>
   );
 }
 

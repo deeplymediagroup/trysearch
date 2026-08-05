@@ -70,7 +70,7 @@ export default async function KeywordDetailPage({ params }: { params: Promise<{ 
           <dl className="space-y-2.5">
             <Row label="Rank"><RankPill state={{ rank: kw.rank, found: kw.found ?? false, last_known_rank: kw.last_known_rank, checked: kw.checked_at != null }} /></Row>
             <Row label="Popularity"><PopularityCell keyword={kw} /></Row>
-            <Row label="Difficulty"><ScoreCell value={kw.difficulty} parts={kw.difficulty_parts} label="Difficulty breakdown" tone="var(--warn)" /></Row>
+            <Row label="Difficulty"><ScoreCell value={kw.difficulty} parts={kw.difficulty_parts} label="Difficulty breakdown" /></Row>
             <Row label="Gap"><DeltaBadge value={kw.gap} /></Row>
             <Row label="Best rank"><span className="num text-[12px]">{kw.best_rank == null ? fmt.EM_DASH : `#${kw.best_rank}`}</span></Row>
             <Row label="7-day avg"><span className="num text-[12px]">{kw.avg_7d == null ? fmt.EM_DASH : `#${Math.round(Number(kw.avg_7d))}`}</span></Row>

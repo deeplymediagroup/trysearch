@@ -90,6 +90,91 @@ export default async function ListingHelperPage() {
       />
 
       <div className="grid gap-4 p-6 lg:grid-cols-2">
+        {/* Left column — configure and generate (reference: inputs left, live listing right). */}
+        <div className="space-y-4">
+          <Panel
+            title="Generate listing"
+            caption="The only part of this page that costs money. The keyword field in a draft still comes from the pure-code packer."
+          >
+            <p className="th mb-1.5">Target locale</p>
+            <p className="mb-1 inline-flex h-8 items-center rounded-[8px] border border-[var(--border)] px-2.5 text-[12px] text-[var(--fg)]">
+              {(countries[0] ?? "us").toUpperCase()} · English
+            </p>
+            <p className="mb-3 text-[11px] text-[var(--fg-subtle)]">The listing will be written in English.</p>
+
+            {aiEnabled() ? (
+              <div className="space-y-3">
+                <div className="[&_span]:w-full [&_button]:w-full">
+                  <AiButton
+                    label="Generate listing"
+                    pendingLabel="Writing listing…"
+                    className="h-9 rounded-[10px] bg-[var(--primary)] px-3 text-[12.5px] font-medium text-white disabled:opacity-50"
+                    action={generateListing.bind(null, active.tracked_app_id, `${(countries[0] ?? "us").toUpperCase()} · English`, "")}
+                  />
+                </div>
+                {draft && (
+                  <div className="space-y-2 rounded-[var(--radius-chip)] border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
+                    <p className="text-[10px] text-[var(--fg-subtle)]">
+                      Draft · {draft.locale} · {fmt.relativeDate(draft.created_at)} · {draft.model}
+                    </p>
+                    {([
+                      ["App Name", draft.app_name, 30, "app_name"],
+                      ["Subtitle", draft.subtitle, 30, "subtitle"],
+                      ["Keywords", draft.keywords_field, 100, null],
+                      ["Promotional Text", draft.promotional_text, 170, "promotional_text"],
+                      ["Description", draft.description, 4000, "description"],
+                    ] as const).map(([label, value, limit, field]) => (
+                      <div key={label}>
+                        <p className="th flex items-baseline justify-between gap-2">
+                          <span>{label}</span>
+                          <span className="flex items-center gap-2">
+                            <span className="num text-[10px]">{(value ?? "").length}/{limit}</span>
+                            {field && (
+                              <AiButton label="Re-roll" pendingLabel="Rewriting…" action={regenerateField.bind(null, draft.id, field)} />
+                            )}
+                          </span>
+                        </p>
+                        <p className={`whitespace-pre-wrap text-[12px] ${label === "Description" ? "line-clamp-6" : ""}`}>{value || fmt.EM_DASH}</p>
+                      </div>
+                    ))}
+                    <p className="text-[10px] text-[var(--fg-subtle)]">
+                      Re-rolling one field keeps every other field fixed; the Keywords field is always the pure-code
+                      packer&apos;s, recomputed when App Name or Subtitle change. Every version is kept below.
+                    </p>
+                  </div>
+                )}
+
+                {drafts.length > 1 && (
+                  <div>
+                    <p className="th mb-1.5">History</p>
+                    <ul className="space-y-1">
+                      {drafts.slice(1).map((d) => (
+                        <li key={d.id} className="flex items-center justify-between gap-2 text-[11.5px]">
+                          <span className="min-w-0 truncate">
+                            <span className="num">{d.app_name ?? "(untitled)"}</span>
+                            <span className="text-[var(--fg-subtle)]"> — {d.subtitle ?? fmt.EM_DASH}</span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span className="text-[10px] text-[var(--fg-subtle)]">{fmt.relativeDate(d.created_at)}</span>
+                            <AiButton label="Restore" pendingLabel="Restoring…" action={restoreListingDraft.bind(null, d.id)} />
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-[12px] text-[var(--fg-muted)]">
+                Writing the App Name, Subtitle, Description and Promotional Text needs a language model, so generation
+                stays off until <code className="num">ANTHROPIC_API_KEY</code> is set.
+              </p>
+            )}
+          </Panel>
+        </div>
+
+        {/* Right column — your listing, as the packer and checkers see it. */}
+        <div className="space-y-4">
         <Panel
           title="Keyword field (100 characters)"
           caption="Pure code, no AI. Apple indexes App Name + Subtitle + Keywords as one bag of words, so a word already in your name or subtitle is never repeated here."
@@ -127,7 +212,6 @@ export default async function ListingHelperPage() {
           )}
         </Panel>
 
-        <div className="space-y-4">
           <Panel
             title="Metadata safety"
             caption="Apple REJECTS listings containing competitor brands, publisher names or people's names. These may be bought as Search Ads keywords, but never indexed."
@@ -172,76 +256,6 @@ export default async function ListingHelperPage() {
             </p>
           </Panel>
 
-          <Panel
-            title="Generation"
-            caption="The only part of this page that costs money. The keyword field in a draft still comes from the pure-code packer."
-          >
-            {aiEnabled() ? (
-              <div className="space-y-3">
-                <AiButton
-                  label="Generate listing"
-                  pendingLabel="Writing listing…"
-                  action={generateListing.bind(null, active.tracked_app_id, `${(countries[0] ?? "us").toUpperCase()} · English`, "")}
-                />
-                {draft && (
-                  <div className="space-y-2 rounded-[var(--radius-chip)] border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
-                    <p className="text-[10px] text-[var(--fg-subtle)]">
-                      Draft · {draft.locale} · {fmt.relativeDate(draft.created_at)} · {draft.model}
-                    </p>
-                    {([
-                      ["App Name", draft.app_name, 30, "app_name"],
-                      ["Subtitle", draft.subtitle, 30, "subtitle"],
-                      ["Keywords", draft.keywords_field, 100, null],
-                      ["Promotional Text", draft.promotional_text, 170, "promotional_text"],
-                      ["Description", draft.description, 4000, "description"],
-                    ] as const).map(([label, value, limit, field]) => (
-                      <div key={label}>
-                        <p className="th flex items-baseline justify-between gap-2">
-                          <span>{label}</span>
-                          <span className="flex items-center gap-2">
-                            <span className="num text-[10px]">{(value ?? "").length}/{limit}</span>
-                            {field && (
-                              <AiButton label="Re-roll" pendingLabel="Rewriting…" action={regenerateField.bind(null, draft.id, field)} />
-                            )}
-                          </span>
-                        </p>
-                        <p className={`whitespace-pre-wrap text-[12px] ${label === "Description" ? "line-clamp-6" : ""}`}>{value || fmt.EM_DASH}</p>
-                      </div>
-                    ))}
-                    <p className="text-[10px] text-[var(--fg-subtle)]">
-                      Re-rolling one field keeps every other field fixed; the Keywords field is always the pure-code
-                      packer&apos;s, recomputed when App Name or Subtitle change. Every version is kept below.
-                    </p>
-                  </div>
-                )}
-
-                {drafts.length > 1 && (
-                  <div>
-                    <p className="th mb-1.5">Draft history</p>
-                    <ul className="space-y-1">
-                      {drafts.slice(1).map((d) => (
-                        <li key={d.id} className="flex items-center justify-between gap-2 text-[11.5px]">
-                          <span className="min-w-0 truncate">
-                            <span className="num">{d.app_name ?? "(untitled)"}</span>
-                            <span className="text-[var(--fg-subtle)]"> — {d.subtitle ?? fmt.EM_DASH}</span>
-                          </span>
-                          <span className="flex shrink-0 items-center gap-2">
-                            <span className="text-[10px] text-[var(--fg-subtle)]">{fmt.relativeDate(d.created_at)}</span>
-                            <AiButton label="Restore" pendingLabel="Restoring…" action={restoreListingDraft.bind(null, d.id)} />
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <p className="text-[12px] text-[var(--fg-muted)]">
-                Writing the App Name, Subtitle, Description and Promotional Text needs a language model, so generation
-                stays off until <code className="num">ANTHROPIC_API_KEY</code> is set.
-              </p>
-            )}
-          </Panel>
         </div>
       </div>
     </AppShell>

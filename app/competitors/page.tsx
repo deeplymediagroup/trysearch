@@ -69,7 +69,12 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
         }
         actions={
           active.role === "own" ? (
-            <AddAppDialog role="competitor" competitorOf={active.tracked_app_id} label="+ Add competitor" />
+            <AddAppDialog
+              role="competitor"
+              competitorOf={active.tracked_app_id}
+              label="+ Add Competitor"
+              triggerClass="h-9 rounded-[10px] bg-[var(--primary)] px-3 text-[12.5px] font-medium text-white hover:opacity-90"
+            />
           ) : null
         }
       />
@@ -84,17 +89,17 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
             key={t.id}
             href={`/competitors?tab=${t.id}`}
             aria-current={tab === t.id ? "page" : undefined}
-            className={`-mb-px border-b-2 px-3 py-2 text-[12.5px] ${tab === t.id ? "border-[var(--accent)] text-[var(--fg)]" : "border-transparent text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
+            className={`-mb-px border-b-2 px-3 py-2 text-[12.5px] ${tab === t.id ? "border-[var(--fg)] font-medium text-[var(--fg)]" : "border-transparent text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
           >
-            {t.label} <span className="num text-[var(--fg-subtle)]">{t.n}</span>
+            {t.label}{" "}
+            <span className="num inline-flex min-w-[18px] items-center justify-center rounded-full bg-[var(--bg-hover)] px-1.5 py-px text-[10.5px] font-normal text-[var(--fg-muted)]">{t.n}</span>
           </Link>
         ))}
       </nav>
 
-      <div className="p-6">
+      <div className="space-y-4 p-6">
         {comparison?.own && comparison?.rival && (
           <Panel
-            className="mb-4"
             title={`${comparison.own.name} vs ${comparison.rival.name}`}
             caption="Side-by-side listing and every shared keyword measurement, sorted by where they beat you hardest."
             action={<Link href="/competitors" className="text-[12px] text-[var(--fg-subtle)] hover:text-[var(--fg)]">✕ Close</Link>}
@@ -150,40 +155,6 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
                   </tbody>
                 </table>
               </div>
-            )}
-          </Panel>
-        )}
-
-        {tab === "competitors" && suggestions.length > 0 && (
-          <Panel
-            title="Suggested competitors"
-            caption="Computed from data already collected — apps ranking on your tracked keywords, plus the store's similar-apps shelf. Adding one immediately scans its keyword footprint."
-          >
-            <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {suggestions.map((s) => (
-                <div key={`${s.platform}:${s.store_id}`} className="flex items-center justify-between gap-2 rounded border border-[var(--border)] bg-[var(--bg-panel)] px-3 py-2">
-                  <span className="flex min-w-0 items-center gap-2">
-                    {s.icon_url && <img src={s.icon_url} alt="" width={20} height={20} className="rounded-[5px]" />}
-                    <span className="min-w-0">
-                      <span className="num block truncate text-[12.5px]">{s.name ?? `(app ${s.store_id})`}</span>
-                      <span className="block text-[11px] text-[var(--fg-subtle)]">
-                        {s.reason === "serp" ? <>Ranks on <span className="num">{s.overlap}</span> of your keywords</> : "On your similar-apps shelf"}
-                      </span>
-                    </span>
-                  </span>
-                  <span className="flex shrink-0 items-center gap-1">
-                    <AiButton label="Add" pendingLabel="Adding…" action={addSuggestedCompetitor.bind(null, active.tracked_app_id, s.platform, s.store_id)} />
-                    <AiButton label="✕" pendingLabel="…" action={dismissCompetitorSuggestion.bind(null, s.platform, s.store_id)} />
-                  </span>
-                </div>
-              ))}
-            </div>
-            {suggestions.length > 1 && (
-              <AiButton
-                label={`Add all ${suggestions.length}`}
-                pendingLabel="Adding all…"
-                action={addAllSuggestedCompetitors.bind(null, active.tracked_app_id, suggestions.map((s) => ({ store: s.platform, storeId: s.store_id })))}
-              />
             )}
           </Panel>
         )}
@@ -262,6 +233,40 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
           </Panel>
         )}
 
+        {tab === "competitors" && suggestions.length > 0 && (
+          <Panel
+            title="Suggested competitors"
+            caption="Computed from data already collected — apps ranking on your tracked keywords, plus the store's similar-apps shelf. Adding one immediately scans its keyword footprint."
+          >
+            <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {suggestions.map((s) => (
+                <div key={`${s.platform}:${s.store_id}`} className="flex items-center justify-between gap-2 rounded border border-[var(--border)] bg-[var(--bg-panel)] px-3 py-2">
+                  <span className="flex min-w-0 items-center gap-2">
+                    {s.icon_url && <img src={s.icon_url} alt="" width={20} height={20} className="rounded-[5px]" />}
+                    <span className="min-w-0">
+                      <span className="num block truncate text-[12.5px]">{s.name ?? `(app ${s.store_id})`}</span>
+                      <span className="block text-[11px] text-[var(--fg-subtle)]">
+                        {s.reason === "serp" ? <>Ranks on <span className="num">{s.overlap}</span> of your keywords</> : "On your similar-apps shelf"}
+                      </span>
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1">
+                    <AiButton label="Add" pendingLabel="Adding…" action={addSuggestedCompetitor.bind(null, active.tracked_app_id, s.platform, s.store_id)} />
+                    <AiButton label="✕" pendingLabel="…" action={dismissCompetitorSuggestion.bind(null, s.platform, s.store_id)} />
+                  </span>
+                </div>
+              ))}
+            </div>
+            {suggestions.length > 1 && (
+              <AiButton
+                label={`Add all ${suggestions.length}`}
+                pendingLabel="Adding all…"
+                action={addAllSuggestedCompetitors.bind(null, active.tracked_app_id, suggestions.map((s) => ({ store: s.platform, storeId: s.store_id })))}
+              />
+            )}
+          </Panel>
+        )}
+
         {tab === "position" && (
           <div className="space-y-3">
             <p className="text-[12px] text-[var(--fg-muted)]">Live comparison across your tracked keywords — updated with every rank check.</p>
@@ -272,7 +277,7 @@ export default async function CompetitorsPage({ searchParams }: { searchParams: 
                   key={b.id}
                   href={`/competitors?tab=position${bucket === b.id ? "" : `&bucket=${b.id}`}`}
                   title={b.hint}
-                  className={`rounded-[var(--radius-chip)] border px-2.5 py-1 text-[12px] ${bucket === b.id ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--fg-muted)]"}`}
+                  className={`inline-flex h-8 items-center gap-1 rounded-[8px] border px-2 text-[12px] ${bucket === b.id ? "border-[var(--fg)] font-medium text-[var(--fg)]" : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
                 >
                   {b.label} <span className="num">{counts[b.id] ?? 0}</span>
                 </Link>

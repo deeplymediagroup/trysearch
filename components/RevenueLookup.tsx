@@ -44,15 +44,15 @@ export function RevenueLookup() {
               go();
             }
           }}
-          placeholder="Any app — name, store link, id or package name"
+          placeholder="Search by app name or paste a store URL…"
           aria-label="App to estimate"
-          className="min-w-[280px] flex-1 rounded-[var(--radius-chip)] border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-[12.5px]"
+          className="h-9 min-w-[280px] flex-1 rounded-[10px] border border-[var(--border)] bg-[var(--bg)] px-3 text-[12.5px]"
         />
         <button
           type="button"
           onClick={go}
           disabled={pending || !input.trim()}
-          className="h-8 rounded-[var(--radius-chip)] bg-[var(--primary)] px-3 text-[12px] font-medium text-white disabled:opacity-50"
+          className="h-9 rounded-[10px] bg-[var(--primary)] px-3.5 text-[12px] font-medium text-white disabled:opacity-50"
         >
           {pending ? "Estimating…" : "Estimate"}
         </button>

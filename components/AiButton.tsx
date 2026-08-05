@@ -11,10 +11,12 @@ export function AiButton({
   label,
   pendingLabel = "Thinking…",
   action,
+  className = "h-7 rounded-[var(--radius-chip)] border border-[var(--border)] px-2.5 text-[12px] leading-7 text-[var(--fg-muted)] hover:text-[var(--fg)] disabled:opacity-50",
 }: {
   label: string;
   pendingLabel?: string;
   action: () => Promise<{ ok?: boolean; error?: string }>;
+  className?: string;
 }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +35,7 @@ export function AiButton({
             else router.refresh();
           })
         }
-        className="h-7 rounded-[var(--radius-chip)] border border-[var(--border)] px-2.5 text-[12px] leading-7 text-[var(--fg-muted)] hover:text-[var(--fg)] disabled:opacity-50"
+        className={className}
       >
         {pending ? pendingLabel : label}
       </button>

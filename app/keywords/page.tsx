@@ -62,26 +62,28 @@ export default async function KeywordsPage({ searchParams }: { searchParams: Pro
         }
       />
 
-      <nav className="px-6 pb-1 pt-2" aria-label="Keyword tabs">
-        <div className="inline-flex items-center gap-1 rounded-[10px] bg-[var(--bg-hover)] p-1">
-          {[
-            { id: "tracked", label: "Tracked", n: rows.length },
-            { id: "discovered", label: "Discovered", n: discovered.length },
-            ...(otherStore ? [{ id: "both", label: "Both stores", n: null as number | null }] : []),
-          ].map((t) => (
-            <Link
-              key={t.id}
-              href={`/keywords?tab=${t.id}`}
-              aria-current={tab === t.id ? "page" : undefined}
-              className={`flex items-center gap-2 rounded-[8px] px-3.5 py-1.5 text-[13px] font-medium ${tab === t.id ? "border border-[var(--border)] bg-[var(--bg)] text-[var(--fg)] shadow-sm" : "text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
-            >
-              {t.label}
-              {t.n != null && (
-                <span className={`num rounded-full px-1.5 text-[11px] ${tab === t.id ? "bg-[var(--bg-hover)] text-[var(--fg-muted)]" : "text-[var(--fg-subtle)]"}`}>{t.n}</span>
-              )}
-            </Link>
-          ))}
-        </div>
+      <nav className="flex items-center gap-5 border-b border-[var(--border)] px-6" aria-label="Keyword tabs">
+        {[
+          { id: "tracked", label: "Tracked", n: rows.length, hot: false },
+          { id: "discovered", label: "Discovered", n: discovered.length, hot: true },
+          ...(otherStore ? [{ id: "both", label: "Both stores", n: null as number | null, hot: false }] : []),
+        ].map((t) => (
+          <Link
+            key={t.id}
+            href={`/keywords?tab=${t.id}`}
+            aria-current={tab === t.id ? "page" : undefined}
+            className={`-mb-px flex items-center gap-1.5 border-b-2 py-2.5 text-[13.5px] ${
+              tab === t.id ? "border-[var(--fg)] font-semibold text-[var(--fg)]" : "border-transparent text-[var(--fg-muted)] hover:text-[var(--fg)]"
+            }`}
+          >
+            {t.label}
+            {t.n != null && (
+              <span className={`num rounded-full px-1.5 py-px text-[11px] ${t.hot && tab !== t.id ? "bg-[var(--accent)] text-white" : "bg-[var(--bg-hover)] text-[var(--fg-muted)]"}`}>
+                {t.n}
+              </span>
+            )}
+          </Link>
+        ))}
       </nav>
 
       {/*

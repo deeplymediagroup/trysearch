@@ -131,8 +131,16 @@ function bracketOf(rank: number | null): string | null {
   return "r100_plus";
 }
 
+/** Value-scaled tones, shared by the popularity and difficulty cells. */
+export function popularityTone(v: number) {
+  return v >= 50 ? "var(--up)" : v >= 20 ? "var(--warn)" : "var(--down)";
+}
+export function difficultyTone(v: number) {
+  return v <= 20 ? "var(--up)" : v <= 55 ? "var(--warn)" : "var(--down)";
+}
+
 /**
- * RankPill — the four-valued rank state, coloured by bracket when ranked.
+ * RankPill — the four-valued rank state as plain bracket-coloured text.
  * The bracket colours are the SAME ones the stacked chart uses, deliberately.
  */
 export function RankPill({ state }: { state: fmt.RankState | null | undefined }) {
@@ -141,10 +149,7 @@ export function RankPill({ state }: { state: fmt.RankState | null | undefined })
 
   if (state?.rank != null && bracket) {
     return (
-      <span
-        className="num inline-flex items-center rounded-[var(--radius-pill)] px-2 py-0.5 text-[12px] font-medium"
-        style={{ color: BRACKET_COLOURS[bracket], background: "color-mix(in srgb, currentColor 12%, transparent)" }}
-      >
+      <span className="num text-[13px] font-medium" style={{ color: BRACKET_COLOURS[bracket] }}>
         {text}
       </span>
     );
@@ -193,19 +198,15 @@ export function ScoreCell({
 
   const pct = Math.max(0, Math.min(100, (value / max) * 100));
   const rows = parts ? breakdownRows(parts) : [];
+  // Default tone scales with the value the way a difficulty reads: low green, high red.
+  const colour = tone ?? difficultyTone(value);
 
   return (
     <span className="group/score relative inline-flex items-center gap-2">
-      <span aria-hidden className="h-[5px] w-12 overflow-hidden rounded-full bg-[var(--bg-hover)]">
-        <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: tone ?? "var(--accent)" }} />
+      <span aria-hidden className="h-1 w-10 overflow-hidden rounded-full bg-[var(--bg-hover)]">
+        <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: colour }} />
       </span>
-      <span
-        className="num inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[11.5px] font-medium tabular-nums"
-        style={{
-          color: tone ?? "var(--fg)",
-          background: tone ? "color-mix(in srgb, currentColor 12%, transparent)" : "var(--bg-hover)",
-        }}
-      >
+      <span className="num text-[12.5px] font-medium tabular-nums" style={{ color: colour }}>
         {fmt.score(value)}
       </span>
 
@@ -291,11 +292,11 @@ export function PopularityCell({
     );
   }
 
-  // Bar + circled number, same grammar as the difficulty cell. Low demand reads red,
-  // everything else amber. Parentheses still mean "our estimate", per the house rule.
-  const tone = effective < 15 ? "var(--down)" : "var(--warn)";
+  // Bar + plain value-coloured number, same grammar as the difficulty cell: green when
+  // demand is real, amber mid, red weak. Parentheses still mean "our estimate" (house rule),
+  // and the floored store value keeps its "5 (28)" form.
+  const tone = popularityTone(effective);
   const pct = Math.max(4, Math.min(100, effective));
-  const badge = estimated || !fromStore ? `(${effective})` : String(effective);
 
   return (
     <span
@@ -308,15 +309,12 @@ export function PopularityCell({
             : "Our estimate from autocomplete position — parentheses mean modelled, not store-reported."
       }
     >
-      <span aria-hidden className="h-[5px] w-12 overflow-hidden rounded-full bg-[var(--bg-hover)]">
+      <span aria-hidden className="h-1 w-10 overflow-hidden rounded-full bg-[var(--bg-hover)]">
         <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: tone }} />
       </span>
-      <span
-        className="num inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[11.5px] font-medium tabular-nums"
-        style={{ color: tone, background: "color-mix(in srgb, currentColor 12%, transparent)" }}
-      >
-        {fromStore && keyword?.platform === "ios" && <span aria-label="store-reported" className="mr-0.5 text-[9px]">&#63743;</span>}
-        {badge}
+      <span className="num text-[12.5px] font-medium tabular-nums" style={{ color: tone }}>
+        {fromStore && keyword?.platform === "ios" && <span aria-label="store-reported" className="mr-0.5 text-[9px] text-[var(--fg-subtle)]">&#63743;</span>}
+        {text}
       </span>
     </span>
   );

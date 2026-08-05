@@ -49,6 +49,7 @@ const NAV: NavGroup[] = [
     items: [
       { label: "Dashboard", href: "/dashboard", icon: LayoutGrid },
       { label: "Portfolio", href: "/portfolio", icon: Folder },
+      { label: "Client reports", href: "/client-reports", icon: FileText },
     ],
   },
   {

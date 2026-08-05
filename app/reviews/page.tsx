@@ -66,11 +66,16 @@ export default async function ReviewsPage({
         actions={
           <span className="flex items-center gap-2">
             {aiEnabled() && (
-              <AiButton label="Analyze reviews (AI)" pendingLabel="Reading reviews…" action={analyzeReviews.bind(null, active.app_id)} />
+              <AiButton
+                label="Analyze reviews"
+                pendingLabel="Reading reviews…"
+                action={analyzeReviews.bind(null, active.app_id)}
+                className="h-9 rounded-[10px] bg-[var(--primary)] px-3 text-[12.5px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+              />
             )}
             <Link
               href={`/reviews?min=${min}&max=${max}&sort=${sort}&analyze=1`}
-              className="h-7 rounded-[var(--radius-chip)] border border-[var(--border)] px-2.5 text-[12px] leading-7 text-[var(--fg-muted)] hover:text-[var(--fg)]"
+              className="h-9 rounded-[10px] border border-[var(--border)] bg-[var(--bg)] px-3 text-[12px] leading-9 text-[var(--fg-muted)] hover:text-[var(--fg)]"
             >
               Quick classify
             </Link>
@@ -78,7 +83,7 @@ export default async function ReviewsPage({
         }
       />
 
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-6 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 px-6 pb-4">
         {others.length > 1 && (
           <>
             <span className="th">App</span>
@@ -86,48 +91,53 @@ export default async function ReviewsPage({
               <Link
                 key={a.app_id}
                 href={qs({ rapp: a.app_id === own.app_id ? undefined : a.app_id, page: undefined, cc: undefined })}
-                className={`flex items-center gap-1.5 rounded-[var(--radius-chip)] border px-2 py-0.5 text-[12px] ${a.app_id === active.app_id ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--fg-muted)]"}`}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-[8px] border px-2 text-[12px] ${a.app_id === active.app_id ? "border-[var(--fg)] font-medium text-[var(--fg)]" : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
               >
                 {a.name}
-                {a.role === "competitor" && <span className="text-[10px] text-[var(--fg-subtle)]">rival</span>}
+                {a.role === "competitor" && <span className="text-[10px] font-normal text-[var(--fg-subtle)]">rival</span>}
               </Link>
             ))}
             <span className="text-[var(--fg-subtle)]">·</span>
           </>
         )}
-        <span className="th">Rating</span>
         {[1, 2, 3, 4, 5].map((star) => (
           <Link
             key={star}
             href={qs({ min: String(star), max: String(star), page: undefined })}
-            className={`rounded-[var(--radius-chip)] border px-2 py-0.5 text-[12px] ${Number(min) === star && Number(max) === star ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--fg-muted)]"}`}
+            className={`inline-flex h-8 items-center rounded-[8px] border px-2 text-[12px] ${Number(min) === star && Number(max) === star ? "border-[var(--fg)] font-medium text-[var(--fg)]" : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
           >
             {star}★
           </Link>
         ))}
-        <Link href={qs({ min: "1", max: "5", page: undefined })} className="rounded-[var(--radius-chip)] border border-[var(--border)] px-2 py-0.5 text-[12px] text-[var(--fg-muted)]">
+        <Link
+          href={qs({ min: "1", max: "5", page: undefined })}
+          className={`inline-flex h-8 items-center rounded-[8px] border px-2 text-[12px] ${Number(min) === 1 && Number(max) === 5 ? "border-[var(--fg)] font-medium text-[var(--fg)]" : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
+        >
           All
         </Link>
 
         {reviewCountries.length > 1 && (
           <>
             <span className="ml-2 th">Market</span>
-            <Link href={qs({ cc: undefined, page: undefined })} className={`rounded-[var(--radius-chip)] border px-2 py-0.5 text-[12px] ${!cc ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--fg-muted)]"}`}>
+            <Link
+              href={qs({ cc: undefined, page: undefined })}
+              className={`inline-flex h-8 items-center rounded-[8px] border px-2 text-[12px] ${!cc ? "border-[var(--fg)] font-medium text-[var(--fg)]" : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
+            >
               All
             </Link>
             {reviewCountries.map((c) => (
               <Link
                 key={c.country}
                 href={qs({ cc: c.country, page: undefined })}
-                className={`rounded-[var(--radius-chip)] border px-2 py-0.5 text-[12px] ${cc === c.country ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--fg-muted)]"}`}
+                className={`inline-flex h-8 items-center gap-1 rounded-[8px] border px-2 text-[12px] ${cc === c.country ? "border-[var(--fg)] font-medium text-[var(--fg)]" : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
               >
-                {c.country.toUpperCase()} <span className="num text-[10px] text-[var(--fg-subtle)]">{c.n}</span>
+                {c.country.toUpperCase()} <span className="num text-[10px] font-normal text-[var(--fg-subtle)]">{c.n}</span>
               </Link>
             ))}
           </>
         )}
 
-        <span className="ml-3 flex items-center gap-1 rounded-[var(--radius-chip)] border border-[var(--border)] p-0.5">
+        <span className="ml-auto flex items-center gap-1.5">
           {[
             { id: "helpful", label: "Most helpful" },
             { id: "recent", label: "Most recent" },
@@ -135,7 +145,7 @@ export default async function ReviewsPage({
             <Link
               key={s.id}
               href={qs({ sort: s.id, page: undefined })}
-              className={`rounded-[5px] px-2 py-0.5 text-[12px] ${sort === s.id ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--fg-muted)]"}`}
+              className={`inline-flex h-8 items-center rounded-[8px] px-2.5 text-[12px] ${sort === s.id ? "bg-[var(--primary)] font-medium text-white" : "border border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"}`}
             >
               {s.label}
             </Link>
@@ -217,10 +227,10 @@ export default async function ReviewsPage({
         )}
 
         {reviews.length === 0 ? (
-          <EmptyState title="No reviews in this filter">
+          <EmptyState title="No reviews match the current filter.">
             {Number(min) === 1 && Number(max) === 5
               ? "Run the crawler's reviews job to pull them from the store."
-              : "Try a wider rating range."}
+              : "Try adjusting the star selection or focusing a different app."}
           </EmptyState>
         ) : (
           <Panel

@@ -32,38 +32,50 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
 
   return (
     <AppShell current="/activity">
-      <PageHeader app={active} title="Activity" subtitle="Changes detected across your tracked apps and competitors" />
+      <PageHeader
+        app={active}
+        title="Activity"
+        subtitle="Changes detected across your tracked apps and competitors"
+        actions={
+          <div className="flex items-center gap-2">
+            {["table", "timeline"].map((v) => (
+              <Link
+                key={v}
+                href={`/activity?view=${v}&scope=${scope}`}
+                className={`inline-flex h-8 items-center rounded-[8px] border px-3 text-[12px] capitalize ${
+                  view === v
+                    ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                    : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"
+                }`}
+              >
+                {v}
+              </Link>
+            ))}
+          </div>
+        }
+      />
 
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-6 py-2.5">
-        <div className="flex items-center gap-1 rounded-[var(--radius-chip)] border border-[var(--border)] p-0.5">
-          {["table", "timeline"].map((v) => (
-            <Link
-              key={v}
-              href={`/activity?view=${v}&scope=${scope}`}
-              className={`rounded-[5px] px-2 py-0.5 text-[12px] capitalize ${view === v ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--fg-muted)]"}`}
-            >
-              {v}
-            </Link>
-          ))}
-        </div>
-        <div className="flex items-center gap-1 rounded-[var(--radius-chip)] border border-[var(--border)] p-0.5">
-          {[
-            { id: "all", label: "All" },
-            { id: "own", label: "My Apps" },
-            { id: "competitor", label: "Competitors" },
-          ].map((s) => (
-            <Link
-              key={s.id}
-              href={`/activity?view=${view}&scope=${s.id}`}
-              className={`rounded-[5px] px-2 py-0.5 text-[12px] ${scope === s.id ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--fg-muted)]"}`}
-            >
-              {s.label}
-            </Link>
-          ))}
-        </div>
+      <div className="flex flex-wrap items-center gap-2 px-6 pb-4">
+        {[
+          { id: "all", label: "All" },
+          { id: "own", label: "My Apps" },
+          { id: "competitor", label: "Competitors" },
+        ].map((s) => (
+          <Link
+            key={s.id}
+            href={`/activity?view=${view}&scope=${s.id}`}
+            className={`inline-flex h-8 items-center rounded-[8px] border px-2.5 text-[12px] ${
+              scope === s.id
+                ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"
+            }`}
+          >
+            {s.label}
+          </Link>
+        ))}
       </div>
 
-      <div className="p-6">
+      <div className="px-6 pb-6">
         {events.length === 0 ? (
           <EmptyState title="No changes detected yet">
             Activity is the diff between consecutive daily snapshots, so it stays empty until something actually changes —
@@ -92,30 +104,39 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
             ))}
           </Panel>
         ) : (
-          <Panel caption="One row per detected change.">
+          <Panel>
             <div className="overflow-x-auto">
               <table className="w-full text-[12.5px]">
                 <thead>
                   <tr className="border-b border-[var(--border)]">
                     <th scope="col" className="th px-3 py-2 text-left">App</th>
                     <th scope="col" className="th px-3 py-2 text-left">Details</th>
-                    <th scope="col" className="th px-3 py-2 text-left">Date</th>
+                    <th scope="col" className="th px-3 py-2 text-right">Date</th>
                   </tr>
                 </thead>
                 <tbody>
                   {events.map((e: any) => (
                     <tr key={e.id} className="border-b border-[var(--border)] align-top">
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <span className="flex items-center gap-2">
-                          {e.icon_url && <img src={e.icon_url} alt="" width={18} height={18} className="rounded-[4px]" />}
-                          <span className="num">{e.app_name}</span>
-                          <PlatformChip platform={e.platform} />
-                          {e.role === "competitor" && <span className="text-[10px] text-[var(--fg-subtle)]">· Competitor</span>}
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        <span className="flex items-center gap-2.5">
+                          {e.icon_url && <img src={e.icon_url} alt="" width={28} height={28} className="rounded-[6px]" />}
+                          <span className="min-w-0">
+                            <span className="block text-[13px] font-medium text-[var(--fg)]">{e.app_name}</span>
+                            <span className="block text-[11px] text-[var(--fg-subtle)]">
+                              {e.platform === "ios" ? "iOS" : "Android"}
+                              {e.role === "competitor" && (
+                                <>
+                                  {" · "}
+                                  <span className="text-[var(--accent)]">Competitor</span>
+                                </>
+                              )}
+                            </span>
+                          </span>
                         </span>
                       </td>
-                      <td className="px-3 py-2"><Details event={e} /></td>
-                      <td className="px-3 py-2 whitespace-nowrap text-[var(--fg-subtle)]">
-                        {fmt.shortDate(e.occurred_on)}
+                      <td className="px-3 py-3"><Details event={e} /></td>
+                      <td className="px-3 py-3 whitespace-nowrap text-right text-[var(--fg-subtle)]">
+                        {dateLabel(e.occurred_on)}
                         {e.country && <span className="ml-1"><CountryFlag country={e.country} showCode={false} /></span>}
                       </td>
                     </tr>
@@ -153,6 +174,16 @@ function Details({ event }: { event: any }) {
 }
 
 const truncate = (s: string | null) => (s == null ? "—" : s.length > 140 ? `${s.slice(0, 137)}…` : s);
+
+/** 'Yesterday' / '5d ago' inside the last week, 'Jul 22' after — matches the reference feed. */
+function dateLabel(d: string) {
+  const days = (Date.now() - new Date(d).getTime()) / 86_400_000;
+  if (days >= 0 && days < 7) {
+    const rel = fmt.relativeDate(d);
+    return rel.charAt(0).toUpperCase() + rel.slice(1);
+  }
+  return fmt.shortDate(d);
+}
 
 /** Newest-first events → [dayKey, events[]] pairs, preserving order within a day. */
 function groupByDay(events: any[]): [string, any[]][] {

@@ -32,13 +32,6 @@ export default async function RevenuePage() {
         </div>
 
         <Panel
-          title="Size up any app"
-          caption="Estimates an app you don't track. The result is cached, so asking twice is free."
-        >
-          <RevenueLookup />
-        </Panel>
-
-        <Panel
           title="Tracked apps"
           caption="Computed nightly by the crawler from real scraped in-app prices, install counts and rating volume."
         >
@@ -52,22 +45,31 @@ export default async function RevenuePage() {
               <table className="w-full text-[12.5px]">
                 <thead>
                   <tr className="border-b border-[var(--border)]">
-                    {["App", "Model", "Confidence", "Est. Revenue/mo", "Modelled range", "In-app prices", "As of"].map((h) => (
+                    {/* Four columns like the reference — range, IAP count and date fold in as subtext. */}
+                    {["App", "Model", "Confidence"].map((h) => (
                       <th key={h} scope="col" className="th px-3 py-2 text-left whitespace-nowrap">{h}</th>
                     ))}
+                    <th scope="col" className="th px-3 py-2 text-right whitespace-nowrap">Est. Revenue/mo</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => (
                     <tr key={`${r.platform}-${r.store_id}`} className="border-b border-[var(--border)]">
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2.5">
                         <span className="flex items-center gap-2">
-                          <span className="num">{r.name}</span>
+                          <span className="font-medium">{r.name}</span>
                           {r.role === "own" && <Chip tone="branded">Your app</Chip>}
                         </span>
+                        <span className="block text-[11px] text-[var(--fg-subtle)]">{r.platform === "ios" ? "iOS" : "Android"}</span>
                       </td>
-                      <td className="px-3 py-2 capitalize">{r.model ? String(r.model).replace("_", " ") : fmt.EM_DASH}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2.5 capitalize">
+                        {r.model ? String(r.model).replace("_", " ") : fmt.EM_DASH}
+                        <span className="block text-[11px] normal-case text-[var(--fg-subtle)]">
+                          {r.iap_count > 0 ? `${r.iap_count} in-app prices` : "no in-app prices"}
+                          {r.estimated_on ? ` · as of ${fmt.shortDate(r.estimated_on)}` : ""}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
                         {r.confidence ? (
                           /* The factors ARE the confidence explanation, so they hang off the badge. */
                           <span className="group/conf relative inline-flex">
@@ -90,15 +92,13 @@ export default async function RevenuePage() {
                           fmt.EM_DASH
                         )}
                       </td>
-                      <td className="num px-3 py-2 font-medium">{r.display ?? fmt.EM_DASH}</td>
-                      <td className="num px-3 py-2 text-[11px] text-[var(--fg-subtle)]">
-                        {r.monthly_usd_low != null && r.monthly_usd_high != null
-                          ? `$${Number(r.monthly_usd_low).toLocaleString()} – $${Number(r.monthly_usd_high).toLocaleString()}`
-                          : fmt.EM_DASH}
-                      </td>
-                      <td className="num px-3 py-2">{r.iap_count > 0 ? r.iap_count : fmt.EM_DASH}</td>
-                      <td className="px-3 py-2 text-[11px] text-[var(--fg-subtle)]">
-                        {r.estimated_on ? fmt.shortDate(r.estimated_on) : fmt.EM_DASH}
+                      <td className="num px-3 py-2.5 text-right font-medium">
+                        {r.display ?? fmt.EM_DASH}
+                        {r.monthly_usd_low != null && r.monthly_usd_high != null && (
+                          <span className="block text-[11px] font-normal text-[var(--fg-subtle)]">
+                            ${Number(r.monthly_usd_low).toLocaleString()} – ${Number(r.monthly_usd_high).toLocaleString()}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -106,6 +106,13 @@ export default async function RevenuePage() {
               </table>
             </div>
           )}
+        </Panel>
+
+        <Panel
+          title="Look up any app's revenue"
+          caption="Search any app on the App Store or Google Play to see its estimated monthly revenue — no tracking required. The result is cached, so asking twice is free."
+        >
+          <RevenueLookup />
         </Panel>
 
         <Panel title="About revenue estimates">

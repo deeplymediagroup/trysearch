@@ -63,7 +63,7 @@ export function AlertSettings({
                 <p className="mt-0.5 text-[11.5px] text-[var(--fg-muted)]">{a.description}</p>
                 {"threshold" in a && a.threshold && (
                   <label className="mt-2 flex items-center gap-2 text-[11.5px] text-[var(--fg-subtle)]">
-                    Notify when it moves at least
+                    Notify when it {a.kind === "rank_drop" ? "drops" : "climbs"} at least
                     <input
                       type="number"
                       min={1}
@@ -88,7 +88,7 @@ export function AlertSettings({
                 aria-label={a.title}
                 disabled={pending}
                 onClick={() => toggle(a.kind, !setting.enabled)}
-                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${setting.enabled ? "bg-[var(--accent)]" : "bg-[var(--bg-hover)]"}`}
+                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${setting.enabled ? "bg-[var(--primary)]" : "bg-[var(--bg-hover)]"}`}
               >
                 <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${setting.enabled ? "left-[18px]" : "left-0.5"}`} />
               </button>
@@ -97,37 +97,39 @@ export function AlertSettings({
         })}
       </div>
 
-      <div className="panel space-y-3 p-3.5">
-        <div>
-          <p className="text-[13px] font-medium">Deliver alerts to</p>
-          <p className="mt-0.5 text-[11.5px] text-[var(--fg-muted)]">Defaults to your login email. A shared or team inbox works too.</p>
-          <div className="mt-2 flex items-center gap-2">
-            <input
-              type="email"
-              value={emailValue}
-              onChange={(e) => setEmailValue(e.target.value)}
-              aria-label="Alert email"
-              className="h-7 w-64 rounded-[var(--radius-chip)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2 text-[12px]"
-            />
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() =>
-                start(async () => {
-                  await setAlertEmail(emailValue);
-                  setSaved("Saved");
-                  setTimeout(() => setSaved(null), 2000);
-                })
-              }
-              className="h-7 rounded-[var(--radius-chip)] border border-[var(--border)] px-2.5 text-[12px] text-[var(--fg-muted)] hover:text-[var(--fg)]"
-            >
-              Save
-            </button>
-            {saved && <span className="text-[11px] text-[var(--up)]">{saved}</span>}
-          </div>
+      <div className="panel p-3.5">
+        <p className="text-[13px] font-medium">Deliver alerts to</p>
+        <p className="mt-0.5 text-[11.5px] text-[var(--fg-muted)]">
+          By default alerts go to your login email. Set a different address to send them to a shared or team inbox.
+        </p>
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            type="email"
+            value={emailValue}
+            onChange={(e) => setEmailValue(e.target.value)}
+            aria-label="Alert email"
+            className="h-8 w-64 rounded-[8px] border border-[var(--border)] bg-[var(--bg-elevated)] px-2 text-[12px]"
+          />
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                await setAlertEmail(emailValue);
+                setSaved("Saved");
+                setTimeout(() => setSaved(null), 2000);
+              })
+            }
+            className="h-8 rounded-[10px] bg-[var(--primary)] px-3 text-[12px] font-medium text-white disabled:opacity-60"
+          >
+            Save
+          </button>
+          {saved && <span className="text-[11px] text-[var(--up)]">{saved}</span>}
         </div>
+      </div>
 
-        <div className="flex items-start justify-between gap-4 border-t border-[var(--border)] pt-3">
+      <div className="panel p-3.5">
+        <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[13px] font-medium">Pause alert emails</p>
             <p className="mt-0.5 text-[11.5px] text-[var(--fg-muted)]">Stop the daily digest. Alerts still show up in the feed below.</p>
