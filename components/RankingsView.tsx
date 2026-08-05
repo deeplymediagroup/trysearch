@@ -8,6 +8,7 @@
  * same fact.
  */
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable, FilterBar, applyFilters, useFilters } from "./DataTable";
 import { RankHistoryChart } from "./Charts";
@@ -133,7 +134,18 @@ export function RankingsView({
           );
         },
       },
-      { id: "term", header: "Keyword", accessorKey: "term", cell: ({ getValue }) => <span className="num">{String(getValue())}</span> },
+      {
+        id: "term",
+        header: "Keyword",
+        accessorKey: "term",
+        // Same type treatment and link target as the Keywords table — a keyword is the
+        // primary object on this page, not a mono-spaced data cell.
+        cell: ({ row }) => (
+          <Link href={`/keywords/k/${row.original.tracked_keyword_id}`} className="text-[14px] font-medium text-[var(--fg)] hover:underline">
+            {row.original.term}
+          </Link>
+        ),
+      },
       { id: "market", header: "Market", accessorKey: "country", cell: ({ getValue }) => <CountryFlag country={getValue() as string} /> },
       { id: "popularity", header: "Popularity", accessorFn: (r) => r.popularity_estimate ?? r.popularity ?? -1, cell: ({ row }) => <PopularityCell keyword={row.original} /> },
       { id: "difficulty", header: "Difficulty", accessorFn: (r) => r.difficulty ?? -1, cell: ({ row }) => <ScoreCell value={row.original.difficulty} parts={row.original.difficulty_parts} label="Difficulty breakdown" /> },

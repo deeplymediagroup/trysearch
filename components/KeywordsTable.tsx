@@ -11,7 +11,7 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable, FilterBar, applyFilters, useFilters } from "./DataTable";
-import { RankPill, DeltaBadge, ScoreCell, PopularityCell, Chip, CountryFlag, AppIconStrip, Sparkline, EmptyState, EstimateLegend, SOURCE_LABELS } from "./ui";
+import { RankPill, DeltaBadge, ScoreCell, PopularityCell, Chip, CountryFlag, AppIconStrip, Sparkline, EmptyState, EstimateLegend, SourceChip } from "./ui";
 import * as fmt from "@/lib/format";
 import { quadrantFor, QUADRANT_LABELS } from "@/lib/scoring/scores.mjs";
 import Link from "next/link";
@@ -143,7 +143,7 @@ export function KeywordsTable({ rows, countries }: { rows: KeywordRow[]; countri
         id: "source",
         header: "Source",
         accessorKey: "source",
-        cell: ({ getValue }) => <Chip>{SOURCE_LABELS[getValue() as string] ?? String(getValue())}</Chip>,
+        cell: ({ getValue }) => <SourceChip source={String(getValue())} />,
       },
       {
         id: "updated",

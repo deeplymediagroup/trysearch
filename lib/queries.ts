@@ -205,12 +205,12 @@ export async function getRevenueEstimates(workspaceId: string) {
   return q(
     `select ta.role, a.name, a.platform, a.store_id,
             re.model, re.confidence, re.monthly_usd_low, re.monthly_usd_high, re.display,
-            re.factors, re.estimated_on,
+            re.factors, re.estimated_on, re.method, re.grossing_rank,
             (select count(*)::int from app_iaps i where i.app_id = a.id) as iap_count
        from tracked_apps ta
        join apps a on a.id = ta.app_id
        left join lateral (
-         select model, confidence, monthly_usd_low, monthly_usd_high, display, factors, estimated_on
+         select model, confidence, monthly_usd_low, monthly_usd_high, display, factors, estimated_on, method, grossing_rank
            from revenue_estimates where app_id = a.id order by estimated_on desc limit 1
        ) re on true
       where ta.workspace_id = $1 and ta.is_active

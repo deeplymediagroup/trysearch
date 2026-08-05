@@ -210,3 +210,11 @@ export function toCsv(rows: Record<string, unknown>[], columns?: string[]): stri
   const body = rows.map((r) => cols.map((c) => csvCell(r[c])).join(",")).join("\n");
   return `${head}\n${body}`;
 }
+
+/** Public store listing for an app. Used wherever an app name or icon is clickable. */
+export function storeUrl(platform: string, storeId: string | null | undefined, country = "us"): string | null {
+  if (!storeId) return null;
+  return platform === "android"
+    ? `https://play.google.com/store/apps/details?id=${encodeURIComponent(storeId)}&gl=${country.toUpperCase()}`
+    : `https://apps.apple.com/${country.toLowerCase()}/app/id${encodeURIComponent(storeId)}`;
+}

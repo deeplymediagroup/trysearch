@@ -8,6 +8,15 @@ import * as fmt from "@/lib/format";
 export const metadata = { title: "Revenue — trysearch" };
 export const dynamic = "force-dynamic";
 
+/** How the number was derived — the most important column on this page. */
+const METHOD_LABELS: Record<string, string> = {
+  measured: "Measured proceeds",
+  grossing_rank: "Top-grossing rank",
+  rank_only: "Rank only (uncalibrated)",
+  installs_arpu: "Installs x ARPU (weak)",
+  none: "No signal",
+};
+
 const CONFIDENCE_TONE: Record<string, "beatable" | "warn" | "neutral"> = {
   high: "beatable",
   medium: "warn",
@@ -33,7 +42,7 @@ export default async function RevenuePage() {
 
         <Panel
           title="Tracked apps"
-          caption="Computed nightly by the crawler from real scraped in-app prices, install counts and rating volume."
+          caption="Best signal first: real proceeds if we have them, otherwise the app's top-grossing chart rank calibrated against a measured app on the same chart. Hover Confidence for the derivation."
         >
           {withEstimates.length === 0 ? (
             <EmptyState title="No estimates computed yet">
@@ -46,7 +55,7 @@ export default async function RevenuePage() {
                 <thead>
                   <tr className="border-b border-[var(--border)]">
                     {/* Four columns like the reference — range, IAP count and date fold in as subtext. */}
-                    {["App", "Model", "Confidence"].map((h) => (
+                    {["App", "Method", "Model", "Confidence"].map((h) => (
                       <th key={h} scope="col" className="th px-3 py-2 text-left whitespace-nowrap">{h}</th>
                     ))}
                     <th scope="col" className="th px-3 py-2 text-right whitespace-nowrap">Est. Revenue/mo</th>
@@ -61,6 +70,12 @@ export default async function RevenuePage() {
                           {r.role === "own" && <Chip tone="branded">Your app</Chip>}
                         </span>
                         <span className="block text-[11px] text-[var(--fg-subtle)]">{r.platform === "ios" ? "iOS" : "Android"}</span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {r.method ? METHOD_LABELS[r.method] ?? r.method : fmt.EM_DASH}
+                        {r.grossing_rank != null && (
+                          <span className="num block text-[11px] text-[var(--fg-subtle)]">#{r.grossing_rank} grossing (US)</span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 capitalize">
                         {r.model ? String(r.model).replace("_", " ") : fmt.EM_DASH}
@@ -115,21 +130,25 @@ export default async function RevenuePage() {
           <RevenueLookup />
         </Panel>
 
-        <Panel title="About revenue estimates">
+        <Panel title="How revenue is calculated">
           <p className="text-[12px] leading-relaxed text-[var(--fg-muted)]">
-            Estimates derive from public data such as install counts, review volumes, pricing, chart-rank signals,
-            category benchmarks and industry averages. Actual revenue may differ significantly.{" "}
-            <strong className="text-[var(--fg)]">Estimates below $5K/mo are not shown</strong> — they are rendered as
-            <span className="num"> &lt;$5K/mo</span>, because precision we do not have would be a lie. iOS figures are
-            inherently lower-confidence than Android, since Apple hides install counts entirely while Google Play
-            publishes an exact number.
+            Four signals, strongest first. <strong className="text-[var(--fg)]">Measured proceeds</strong> — real
+            App Store Connect money, not an estimate.{" "}
+            <strong className="text-[var(--fg)]">Top-grossing rank</strong> — Apple publishes a daily top-grossing
+            chart per category and storefront, and grossing rank is the only public number that orders apps by money.
+            Chart revenue decays as a power law in rank, so one calibrated app on a chart prices the whole chart:{" "}
+            <span className="num">monthly = anchor x (anchorRank / rank) ^ 0.85</span>.{" "}
+            <strong className="text-[var(--fg)]">Rank only</strong> — on a grossing chart with nothing to calibrate
+            against, so the rank is shown and the dollars are withheld. An uncalibrated power law is a random number
+            with a plausible shape.{" "}
+            <strong className="text-[var(--fg)]">Installs x ARPU</strong> — off-chart apps only: modelled installs
+            times the real scraped in-app prices, with the widest band and permanently low confidence.
           </p>
           <p className="mt-2 text-[12px] leading-relaxed text-[var(--fg-muted)]">
-            <strong className="text-[var(--fg)]">These are for sizing up competitors, not for reading your own
-            numbers.</strong> For your own app the estimate is the weakest thing on this page: iOS installs are modelled
-            from rating counts, which understates a subscription app badly. Connect App Store Connect and{" "}
-            <a href="/performance" className="text-[var(--accent)] underline">Performance</a> will show your real
-            proceeds instead of a model.
+            To turn ranks into dollars, give the model one anchor: connect App Store Connect for an own app that sits
+            on a grossing chart, or set <span className="num">REVENUE_ANCHOR_USD_MONTH</span> to that app&apos;s real
+            monthly proceeds. <strong className="text-[var(--fg)]">Estimates below $5K/mo are shown as{" "}
+            <span className="num">&lt;$5K/mo</span></strong> — precision we do not have would be a lie.
           </p>
         </Panel>
       </div>

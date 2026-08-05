@@ -10,13 +10,16 @@ import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable, FilterBar, applyFilters, useFilters } from "./DataTable";
-import { RankPill, ScoreCell, PopularityCell, Chip, CountryFlag, EmptyState, EstimateLegend, SOURCE_LABELS } from "./ui";
+import { RankPill, ScoreCell, PopularityCell, CountryFlag, EmptyState, EstimateLegend, SourceChip } from "./ui";
 import * as fmt from "@/lib/format";
 import { promoteDiscovered, dismissDiscovered, setAutoTrackRanked } from "@/app/actions/keywords";
 import { runDiscovery } from "@/app/actions/discovery";
 import type { DiscoveredRow } from "@/lib/queries";
 
 const SUB_TABS = [
+  // Relevant is the default view: discovery casts a wide net (chart + competitor subtitle
+  // bigrams), so unfiltered "All" is mostly terms nobody would ever search for this app.
+  { id: "relevant", label: "Relevant" },
   { id: "all", label: "All" },
   { id: "ranked", label: "Ranked" },
   { id: "opportunities", label: "Opportunities" },
@@ -109,12 +112,13 @@ export function DiscoveredTable({
   latestRun?: DiscoveryRun;
 }) {
   const [filters, setFilters] = useFilters();
-  const [subTab, setSubTab] = useState("all");
+  const [subTab, setSubTab] = useState("relevant");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState(false);
 
   const filtered = useMemo(() => {
     let out = applyFilters(rows as any, filters) as DiscoveredRow[];
+    if (subTab === "relevant") out = out.filter((r) => (r.relevance ?? 0) >= 60);
     if (subTab === "ranked") out = out.filter((r) => r.rank != null);
     if (subTab === "opportunities") out = out.filter((r) => (r.opportunity ?? 0) >= 50);
     return out;
@@ -159,7 +163,7 @@ export function DiscoveredTable({
         ),
       },
       { id: "term", header: "Keyword", accessorKey: "term", cell: ({ getValue }) => <span className="text-[14px] font-medium">{String(getValue())}</span> },
-      { id: "source", header: "Source", accessorKey: "source", cell: ({ getValue }) => <Chip>{SOURCE_LABELS[getValue() as string] ?? String(getValue())}</Chip> },
+      { id: "source", header: "Source", accessorKey: "source", cell: ({ getValue }) => <SourceChip source={String(getValue())} /> },
       { id: "market", header: "Market", accessorKey: "country", cell: ({ getValue }) => <CountryFlag country={getValue() as string} /> },
       {
         id: "rank",
@@ -173,15 +177,8 @@ export function DiscoveredTable({
         id: "relevance",
         header: "Relevance",
         accessorFn: (r) => r.relevance ?? -1,
-        // Relevance needs a language model, so it shows '--' until computed and never blocks a render.
-        cell: ({ row }) => (
-          <span
-            className="num text-[12px] text-[var(--fg-subtle)]"
-            title={row.original.relevance_reason ?? "AI-assessed intent match. Optional feature — shows -- until computed."}
-          >
-            {row.original.relevance == null ? fmt.DOUBLE_DASH : row.original.relevance}
-          </span>
-        ),
+        // AI-assessed intent match, computed during discovery. '--' only until it runs.
+        cell: ({ row }) => <ScoreCell value={row.original.relevance} label="Relevance" tone="var(--up)" />,
       },
       { id: "opportunity", header: "Opportunity", accessorFn: (r) => r.opportunity ?? -1, cell: ({ row }) => <ScoreCell value={row.original.opportunity} label="Opportunity" tone="var(--accent)" /> },
       {
@@ -199,7 +196,7 @@ export function DiscoveredTable({
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-6 py-2">
         <div className="flex gap-1">
           {SUB_TABS.map((t) => {
-            const n = t.id === "all" ? rows.length : t.id === "ranked" ? rows.filter((r) => r.rank != null).length : rows.filter((r) => (r.opportunity ?? 0) >= 50).length;
+            const n = t.id === "all" ? rows.length : t.id === "relevant" ? rows.filter((r) => (r.relevance ?? 0) >= 60).length : t.id === "ranked" ? rows.filter((r) => r.rank != null).length : rows.filter((r) => (r.opportunity ?? 0) >= 50).length;
             return (
               <button
                 key={t.id}
@@ -248,7 +245,7 @@ export function DiscoveredTable({
       <DataTable
         data={filtered}
         columns={columns}
-        initialSort={[{ id: "opportunity", desc: true }]}
+        initialSort={[{ id: "relevance", desc: true }]}
         exportName="discovered-keywords"
         emptyState={
           <EmptyState title="Nothing discovered yet">

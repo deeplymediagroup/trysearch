@@ -679,6 +679,11 @@ create table if not exists revenue_estimates (
   unique (app_id, estimated_on)
 );
 
+-- Added with the grossing-rank revenue model: which signal produced the estimate, and the
+-- top-grossing rank behind it when there was one.
+alter table revenue_estimates add column if not exists method text;
+alter table revenue_estimates add column if not exists grossing_rank integer;
+
 -- Real IAP prices scraped from the store product page. This is what turns a
 -- revenue guess into a priced model.
 create table if not exists app_iaps (

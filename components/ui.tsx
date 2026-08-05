@@ -360,6 +360,32 @@ export const SOURCE_LABELS: Record<string, string> = {
   competitor_ai: "Competitor AI",
 };
 
+/** One colour per provenance, so a table of 900 rows reads by source at a glance. */
+const SOURCE_COLORS: Record<string, { fg: string; bg: string }> = {
+  manual: { fg: "var(--fg-muted)", bg: "var(--bg-hover)" },
+  suggested: { fg: "#7c3aed", bg: "rgba(124,58,237,0.12)" },
+  competitor: { fg: "#dc2626", bg: "rgba(220,38,38,0.12)" },
+  competitor_ai: { fg: "#db2777", bg: "rgba(219,39,119,0.12)" },
+  autocomplete: { fg: "#2563eb", bg: "rgba(37,99,235,0.12)" },
+  listing: { fg: "#16a34a", bg: "rgba(22,163,74,0.12)" },
+  ai: { fg: "#7c3aed", bg: "rgba(124,58,237,0.12)" },
+  chart: { fg: "#ea580c", bg: "rgba(234,88,12,0.12)" },
+  play_console: { fg: "#0891b2", bg: "rgba(8,145,178,0.12)" },
+};
+
+export function SourceChip({ source }: { source: string }) {
+  const c = SOURCE_COLORS[source] ?? SOURCE_COLORS.manual;
+  return (
+    <span
+      title={`Source: ${SOURCE_LABELS[source] ?? source}`}
+      className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap"
+      style={{ color: c.fg, background: c.bg }}
+    >
+      {SOURCE_LABELS[source] ?? source}
+    </span>
+  );
+}
+
 /** CountryFlag — never show a rank without one. Flag images (Windows has no flag emoji). */
 export function CountryFlag({ country, showCode = true }: { country: string; showCode?: boolean }) {
   const cc = String(country ?? "").toLowerCase();

@@ -31,7 +31,7 @@ import {
 } from "../lib/stores/apple.mjs";
 import { playAppDetail, playSuggest, playSuggestBroad, extractListingKeywords, playCategoryRanking, playReviews } from "../lib/stores/play.mjs";
 import { fetchIosSerp, fetchAndroidSerp, persistSerp, updateKeywordSerpMetrics } from "../lib/serp.mjs";
-import { scanCompetitor } from "../lib/competitor-scan.mjs";
+import { scanCompetitor, bigrams, isJunkTerm } from "../lib/competitor-scan.mjs";
 import { aiEnabled, scoreRelevance, generateKeywordCandidates, verifyCandidate } from "../lib/ai.mjs";
 import {
   popularityProxy,
@@ -464,6 +464,34 @@ if (JOBS.includes("revenue")) {
 
   log(`1b. revenue — ${trackedApps.length} app(s), scoring from real scraped prices`);
 
+  // ONE calibration anchor per run, shared by every app on the chart: a measured app whose
+  // grossing rank we also know. Without it the grossing-rank model reports rank and no dollars.
+  // REVENUE_ANCHOR_USD_MONTH lets you supply the monthly figure by hand (from RevenueCat, say)
+  // when App Store Connect proceeds are not wired up.
+  const revenueAnchor = await (async () => {
+    const manual = Number(process.env.REVENUE_ANCHOR_USD_MONTH ?? 0);
+    for (const own of trackedApps.filter((a) => a.role === "own")) {
+      const rankRow = await q1(
+        db,
+        `select rank, category from chart_entries
+          where app_id = $1 and chart like '%grossing%' and country = 'us'
+          order by captured_on desc, (category = 'all') asc limit 1`,
+        [own.app_id],
+      );
+      if (!rankRow?.rank) continue;
+      const proceeds = await q1(
+        db,
+        `select sum(proceeds_usd)::float as usd from asc_daily_metrics
+          where app_id = $1 and country = 'ALL' and metric_on > current_date - 31`,
+        [own.app_id],
+      );
+      const monthlyUsd = Number(proceeds?.usd) || manual;
+      if (monthlyUsd > 0) return { rank: rankRow.rank, monthlyUsd, label: own.name };
+    }
+    return null;
+  })();
+  if (!revenueAnchor) jobWarnings.push("revenue: no calibration anchor (no measured proceeds for an own app on a grossing chart, and REVENUE_ANCHOR_USD_MONTH unset) — grossing ranks will be reported without dollar figures.");
+
   for (const app of trackedApps) {
     try {
       if (DRY) { await bumpJob(jobId, ++done); continue; }
@@ -515,8 +543,37 @@ if (JOBS.includes("revenue")) {
         if (res.rows[0]?.is_new) iapRows++;
       }
 
+      // Signal 1 — measured proceeds (own apps with App Store Connect). Last full 30 days.
+      const measured = await q1(
+        db,
+        `select sum(proceeds_usd)::float as usd from asc_daily_metrics
+          where app_id = $1 and country = 'ALL' and metric_on > current_date - 31`,
+        [app.app_id],
+      );
+
+      // Signal 2 — today's top-grossing rank. Category chart first (a category rank is a much
+      // tighter revenue bracket than the all-apps chart), US storefront to match USD prices.
+      const grossing = await q1(
+        db,
+        `select rank, category, country from chart_entries
+          where app_id = $1 and chart like '%grossing%' and country = 'us'
+          order by captured_on desc, (category = 'all') asc
+          limit 1`,
+        [app.app_id],
+      );
+
       const est = revenueEstimate({
         platform: app.platform,
+        // REVENUE_ANCHOR_USD_MONTH is the truth for our OWN app when App Store Connect proceeds
+        // are not wired up: a real figure Brandon reads off RevenueCat beats any model of it.
+        measuredMonthlyUsd:
+          Number(measured?.usd) ||
+          (app.role === "own" ? Number(process.env.REVENUE_ANCHOR_USD_MONTH ?? 0) || null : null),
+        grossingRank: grossing?.rank ?? null,
+        grossingChartLabel: grossing
+          ? `the US top-grossing chart${grossing.category === "all" ? "" : ` for category ${grossing.category}`}`
+          : null,
+        anchor: revenueAnchor,
         realInstalls: realInstalls == null ? null : Number(realInstalls),
         ratingCount: snap?.rating_count == null ? null : Number(snap.rating_count),
         priceCents,
@@ -525,13 +582,14 @@ if (JOBS.includes("revenue")) {
       });
 
       await db.query(
-        `insert into revenue_estimates (app_id, estimated_on, model, confidence, monthly_usd_low, monthly_usd_high, display, factors)
-         values ($1,$2,$3,$4,$5,$6,$7,$8)
+        `insert into revenue_estimates (app_id, estimated_on, model, confidence, monthly_usd_low, monthly_usd_high, display, factors, method, grossing_rank)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          on conflict (app_id, estimated_on) do update set
            model = excluded.model, confidence = excluded.confidence,
            monthly_usd_low = excluded.monthly_usd_low, monthly_usd_high = excluded.monthly_usd_high,
-           display = excluded.display, factors = excluded.factors, computed_at = now()`,
-        [app.app_id, RUN_DATE, est.model, est.confidence, est.monthly_usd_low, est.monthly_usd_high, est.display, JSON.stringify(est.factors)],
+           display = excluded.display, factors = excluded.factors,
+           method = excluded.method, grossing_rank = excluded.grossing_rank, computed_at = now()`,
+        [app.app_id, RUN_DATE, est.model, est.confidence, est.monthly_usd_low, est.monthly_usd_high, est.display, JSON.stringify(est.factors), est.method, est.grossing_rank],
       );
       estimated++;
     } catch (err) {
@@ -1145,6 +1203,7 @@ async function discoverFor(app, jobWarnings) {
     for (const t of terms) {
       const n = String(t).normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
       if (n.length < 3 || n.length > 45) continue;
+      if (isJunkTerm(n)) continue; // one gate for every source: no stopword-edged filler
       if (!candidates.has(n)) candidates.set(n, { term: t, source });
     }
   };
@@ -1359,12 +1418,6 @@ async function discoverFor(app, jobWarnings) {
   return inserted;
 }
 
-function bigrams(text) {
-  const words = String(text ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2);
-  const out = [...words];
-  for (let i = 0; i < words.length - 1; i++) out.push(`${words[i]} ${words[i + 1]}`);
-  return out;
-}
 
 // ===========================================================================
 // JOB 6 — reviews

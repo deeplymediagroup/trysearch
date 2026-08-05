@@ -156,11 +156,18 @@ export default async function KeywordDetailPage({ params }: { params: Promise<{ 
                       <tr key={r.position} className="border-b border-[var(--border)]">
                         <td className="num px-3 py-2">{r.position}</td>
                         <td className="px-3 py-2">
-                          <span className="flex items-center gap-2">
+                          {/* Icon AND name open the store listing — every result is clickable. */}
+                          <a
+                            href={fmt.storeUrl(kw.platform, r.store_id, kw.country) ?? "#"}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={`Open ${r.name ?? "this app"} in the store`}
+                            className="flex items-center gap-2 hover:underline"
+                          >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             {r.icon_url && <img src={r.icon_url} alt="" width={24} height={24} className="rounded-[6px]" />}
                             <span className="font-medium">{r.name ?? fmt.EM_DASH}</span>
-                          </span>
+                          </a>
                         </td>
                         <td className="max-w-xs truncate px-3 py-2 text-[var(--fg-muted)]">{r.subtitle ?? fmt.EM_DASH}</td>
                         <td className="num px-3 py-2">{r.rating_count == null ? fmt.EM_DASH : fmt.count(r.rating_count)}</td>

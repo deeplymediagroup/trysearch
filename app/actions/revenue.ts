@@ -90,8 +90,27 @@ export async function lookupRevenue(input: string): Promise<{ result?: RevenueLo
 
     // `as any`: scores.mjs is plain JS, so TS infers its `= null` defaults as the literal
     // type null rather than `number | null`. The function itself accepts both.
+    // The app row comes first now: the grossing-rank model needs this app's id to read its
+    // chart position, and reading the chart is what makes the estimate more than a guess.
+    const appId = await upsertApp(dbShim, { ...meta, platform: store, store_id: storeId });
+
+    const grossing = await q1<{ rank: number; category: string }>(
+      `select rank, category from chart_entries
+        where app_id = $1 and chart like '%grossing%' and country = 'us'
+        order by captured_on desc, (category = 'all') asc limit 1`,
+      [appId],
+    );
+    const anchor = await revenueAnchor();
+
+    // `as any`: scores.mjs is plain JS, so TS infers its `= null` defaults as the literal
+    // type null rather than `number | null`. The function itself accepts both.
     const est = revenueEstimate({
       platform: store,
+      grossingRank: grossing?.rank ?? null,
+      grossingChartLabel: grossing
+        ? `the US top-grossing chart${grossing.category === "all" ? "" : ` for category ${grossing.category}`}`
+        : null,
+      anchor,
       realInstalls,
       ratingCount: meta.rating_count ?? null,
       priceCents,
@@ -100,15 +119,15 @@ export async function lookupRevenue(input: string): Promise<{ result?: RevenueLo
     } as any);
 
     // Cache it exactly as the crawler would, so the lookup is paid for once.
-    const appId = await upsertApp(dbShim, { ...meta, platform: store, store_id: storeId });
     await q(
-      `insert into revenue_estimates (app_id, estimated_on, model, confidence, monthly_usd_low, monthly_usd_high, display, factors)
-       values ($1, current_date, $2,$3,$4,$5,$6,$7)
+      `insert into revenue_estimates (app_id, estimated_on, model, confidence, monthly_usd_low, monthly_usd_high, display, factors, method, grossing_rank)
+       values ($1, current_date, $2,$3,$4,$5,$6,$7,$8,$9)
        on conflict (app_id, estimated_on) do update set
          model = excluded.model, confidence = excluded.confidence,
          monthly_usd_low = excluded.monthly_usd_low, monthly_usd_high = excluded.monthly_usd_high,
-         display = excluded.display, factors = excluded.factors, computed_at = now()`,
-      [appId, est.model, est.confidence, est.monthly_usd_low, est.monthly_usd_high, est.display, JSON.stringify(est.factors)],
+         display = excluded.display, factors = excluded.factors,
+         method = excluded.method, grossing_rank = excluded.grossing_rank, computed_at = now()`,
+      [appId, est.model, est.confidence, est.monthly_usd_low, est.monthly_usd_high, est.display, JSON.stringify(est.factors), est.method, est.grossing_rank],
     );
     for (const iap of iaps) {
       await q(
@@ -153,4 +172,31 @@ export async function iapsFor(storeId: string, platform: string) {
 export async function hasAnyEstimate(): Promise<boolean> {
   const r = await q1<{ n: string }>(`select count(*)::text as n from revenue_estimates`);
   return Number(r?.n ?? 0) > 0;
+}
+
+/**
+ * The one calibration point that turns a grossing rank into dollars: an own app with measured
+ * proceeds that also sits on a US grossing chart. REVENUE_ANCHOR_USD_MONTH supplies the monthly
+ * figure by hand when App Store Connect proceeds are not wired up. Null anchor is fine — the
+ * estimator then reports the rank and withholds the dollars.
+ */
+async function revenueAnchor(): Promise<{ rank: number; monthlyUsd: number; label: string } | null> {
+  const row = await q1<{ rank: number; name: string; usd: number | null }>(
+    `select ce.rank, a.name,
+            (select sum(m.proceeds_usd)::float from asc_daily_metrics m
+              where m.app_id = a.id and m.country = 'ALL' and m.metric_on > current_date - 31) as usd
+       from tracked_apps ta
+       join apps a on a.id = ta.app_id
+       join lateral (
+         select rank from chart_entries
+          where app_id = a.id and chart like '%grossing%' and country = 'us'
+          order by captured_on desc, (category = 'all') asc limit 1
+       ) ce on true
+      where ta.role = 'own' and ta.is_active
+      order by ce.rank
+      limit 1`,
+  );
+  if (!row?.rank) return null;
+  const monthlyUsd = Number(row.usd) || Number(process.env.REVENUE_ANCHOR_USD_MONTH ?? 0);
+  return monthlyUsd > 0 ? { rank: row.rank, monthlyUsd, label: row.name } : null;
 }
