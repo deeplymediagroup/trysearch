@@ -684,6 +684,11 @@ create table if not exists revenue_estimates (
 alter table revenue_estimates add column if not exists method text;
 alter table revenue_estimates add column if not exists grossing_rank integer;
 
+-- The UNCALIBRATED autocomplete proxy. popularity_estimate holds the calibrated value shown in
+-- the UI; the fit that produces it must be derived from raw values, or each night's fit is
+-- computed from the previous night's output and the whole scale collapses toward identity.
+alter table keywords add column if not exists popularity_proxy_raw integer;
+
 -- Real IAP prices scraped from the store product page. This is what turns a
 -- revenue guess into a priced model.
 create table if not exists app_iaps (

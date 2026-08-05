@@ -133,15 +133,26 @@ function bracketOf(rank: number | null): string | null {
 
 /** Value-scaled tones, shared by the popularity and difficulty cells. */
 /**
- * Both scales use the SAME three bands as the published bracket thresholds — 0-30, 30-60,
- * 60-100 — so a colour and a bracket label can never disagree. Popularity reads "green is
- * demand", difficulty reads "green is winnable"; the thresholds mirror each other.
+ * Score colours, sampled from the reference tool's own computed styles rather than guessed:
+ * green rgb(97,255,202), amber rgb(255,151,47), red rgb(251,57,67), and a muted
+ * rgb(159,151,139) for a store-floored popularity of 5, which is "no measurable demand" and
+ * must not read as a red alarm.
+ *
+ * Thresholds are theirs too, read off live rows: popularity 55 is green and 50 is amber;
+ * difficulty 60 is amber and 61 is red.
  */
+export const SCORE_GREEN = "rgb(97, 255, 202)";
+export const SCORE_AMBER = "rgb(255, 151, 47)";
+export const SCORE_RED = "rgb(251, 57, 67)";
+export const SCORE_MUTED = "rgb(159, 151, 139)";
+
 export function popularityTone(v: number) {
-  return v >= 60 ? "var(--up)" : v >= 30 ? "var(--warn)" : "var(--down)";
+  if (v <= 5) return SCORE_MUTED; // the store's floor: not demand, not an alarm
+  return v >= 55 ? SCORE_GREEN : v >= 30 ? SCORE_AMBER : SCORE_RED;
 }
+
 export function difficultyTone(v: number) {
-  return v < 30 ? "var(--up)" : v < 60 ? "var(--warn)" : "var(--down)";
+  return v < 30 ? SCORE_GREEN : v <= 60 ? SCORE_AMBER : SCORE_RED;
 }
 
 /**
@@ -328,7 +339,7 @@ export function PopularityCell({
 /** Chip — Branded / Generic / Beatable / source chips. */
 const CHIP_TONES: Record<string, { fg: string; bg: string }> = {
   branded: { fg: "var(--accent)", bg: "var(--accent-soft)" },
-  beatable: { fg: "var(--up)", bg: "rgba(34,197,94,0.12)" },
+  beatable: { fg: "rgb(119, 255, 214)", bg: "rgba(119, 255, 214, 0.15)" },
   warn: { fg: "var(--warn)", bg: "rgba(245,158,11,0.12)" },
   neutral: { fg: "var(--fg-muted)", bg: "var(--bg-hover)" },
 };
@@ -367,13 +378,13 @@ export const SOURCE_LABELS: Record<string, string> = {
 
 /** One colour per provenance, so a table of 900 rows reads by source at a glance. */
 const SOURCE_COLORS: Record<string, { fg: string; bg: string }> = {
-  manual: { fg: "var(--fg-muted)", bg: "var(--bg-hover)" },
-  suggested: { fg: "#7c3aed", bg: "rgba(124,58,237,0.12)" },
+  manual: { fg: "rgb(172, 51, 255)", bg: "rgba(172, 51, 255, 0.15)" },
+  suggested: { fg: "rgb(70, 147, 239)", bg: "rgba(70, 147, 239, 0.15)" },
   competitor: { fg: "#dc2626", bg: "rgba(220,38,38,0.12)" },
   competitor_ai: { fg: "#db2777", bg: "rgba(219,39,119,0.12)" },
   autocomplete: { fg: "#2563eb", bg: "rgba(37,99,235,0.12)" },
-  listing: { fg: "#16a34a", bg: "rgba(22,163,74,0.12)" },
-  ai: { fg: "#7c3aed", bg: "rgba(124,58,237,0.12)" },
+  listing: { fg: "rgb(119, 255, 214)", bg: "rgba(119, 255, 214, 0.15)" },
+  ai: { fg: "rgb(190, 130, 255)", bg: "rgba(190, 130, 255, 0.15)" },
   chart: { fg: "#ea580c", bg: "rgba(234,88,12,0.12)" },
   play_console: { fg: "#0891b2", bg: "rgba(8,145,178,0.12)" },
 };

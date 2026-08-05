@@ -1080,8 +1080,8 @@ if (JOBS.includes("metrics")) {
   const proxyFit = fitProxyCalibration(
     await q(
       db,
-      `select popularity_estimate::float as proxy, popularity::float as store from keywords
-        where popularity is not null and popularity_estimate is not null and popularity_source = 'store'`,
+      `select popularity_proxy_raw::float as proxy, popularity::float as store from keywords
+        where popularity is not null and popularity_proxy_raw is not null`,
     ),
   );
   log(`   proxy calibration: ${proxyFit.fitted ? `store = ${proxyFit.slope} x proxy + ${proxyFit.intercept} (n=${proxyFit.n})` : `identity (only ${proxyFit.n} paired observation(s))`}`);
@@ -1175,7 +1175,8 @@ if (JOBS.includes("metrics")) {
       const effective = popularityEffective({ popularity: kw.popularity, popularity_estimate: est });
       await db.query(
         `update keywords
-            set popularity_estimate = $2,
+            set popularity_proxy_raw = $4,
+                popularity_estimate = $2,
                 -- popularity_source records HOW we know: 'store' only when a real store value
                 -- exists, otherwise 'proxy' so the UI can label it as ours.
                 popularity_source = case when popularity is not null then 'store' else 'proxy' end,
@@ -1184,7 +1185,7 @@ if (JOBS.includes("metrics")) {
           where id = $1`,
         // Downloads follow the EFFECTIVE popularity (Apple's number when it exists), not the
         // proxy — otherwise the inflated proxy inflated the download estimate with it.
-        [kw.keyword_id, est, estDownloadsAtRank1({ popularity: effective, platform: kw.platform })],
+        [kw.keyword_id, est, estDownloadsAtRank1({ popularity: effective, platform: kw.platform }), result.value],
       );
     } catch (err) {
       jobWarnings.push(`metrics "${kw.term}"/${kw.country}: ${err.message}`);

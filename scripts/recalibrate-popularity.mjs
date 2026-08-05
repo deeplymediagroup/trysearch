@@ -34,7 +34,15 @@ if (asaConfigured()) {
 
   for (const { country } of countries) {
     for (const { store_id } of own) {
-      const sap = await searchPopularity({ adamId: store_id, country });
+      // ASA allows 10 custom reports a day. One country hitting the quota must not abandon the
+      // calibration pass that follows — that work needs no upstream calls at all.
+      let sap;
+      try {
+        sap = await searchPopularity({ adamId: store_id, country });
+      } catch (err) {
+        console.log(`asa sov ${country}: skipped (${err.message.slice(0, 80)})`);
+        continue;
+      }
       console.log(`asa sov ${country}: ${sap.size} term(s) with real popularity`);
       if (!sap.size) continue;
       const terms = await q(
@@ -63,8 +71,8 @@ console.log(`applied Apple popularity to ${applied} keyword(s)`);
 const fit = fitProxyCalibration(
   await q(
     db,
-    `select popularity_estimate::float as proxy, popularity::float as store from keywords
-      where popularity is not null and popularity_estimate is not null and popularity_source = 'store'`,
+    `select popularity_proxy_raw::float as proxy, popularity::float as store from keywords
+      where popularity is not null and popularity_proxy_raw is not null`,
   ),
 );
 console.log("proxy fit:", fit);
@@ -72,24 +80,22 @@ console.log("proxy fit:", fit);
 if (!fit.fitted) {
   console.log("not enough paired observations to calibrate — estimates left alone");
 } else {
-  // Only ever calibrate a raw proxy once: an already-calibrated value re-fed through the fit
-  // would shrink every night. proxy_calibrated_at records that it has been done.
-  await q(db, `alter table keywords add column if not exists proxy_calibrated_at timestamptz`);
+  // Always recomputed FROM THE RAW value, so running this twice is a no-op rather than a
+  // second shrink. Rows with no raw value yet are left alone; the nightly metrics job records
+  // one for every keyword it refreshes.
   const rows = await q(
     db,
-    `select id, popularity, popularity_estimate, platform from keywords
-      where popularity_estimate is not null and proxy_calibrated_at is null`,
+    `select id, popularity, popularity_proxy_raw, platform from keywords where popularity_proxy_raw is not null`,
   );
   let n = 0;
   for (const r of rows) {
-    const est = applyProxyCalibration(Number(r.popularity_estimate), fit);
-    if (est === Number(r.popularity_estimate)) continue;
+    const est = applyProxyCalibration(Number(r.popularity_proxy_raw), fit);
     const effective = popularityEffective({ popularity: r.popularity, popularity_estimate: est });
-    await q(
-      db,
-      `update keywords set popularity_estimate = $2, est_downloads_rank1 = $3, proxy_calibrated_at = now() where id = $1`,
-      [r.id, est, estDownloadsAtRank1({ popularity: effective, platform: r.platform })],
-    );
+    await q(db, `update keywords set popularity_estimate = $2, est_downloads_rank1 = $3 where id = $1`, [
+      r.id,
+      est,
+      estDownloadsAtRank1({ popularity: effective, platform: r.platform }),
+    ]);
     n++;
   }
   console.log(`recalibrated ${n} of ${rows.length} stored estimate(s)`);
