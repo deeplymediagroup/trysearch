@@ -113,6 +113,7 @@ export async function lookupRevenue(input: string): Promise<{ result?: RevenueLo
       anchor,
       realInstalls,
       ratingCount: meta.rating_count ?? null,
+      category: meta.primary_genre ?? null,
       priceCents,
       iaps,
       lifetimeMonths,

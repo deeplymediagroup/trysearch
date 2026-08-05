@@ -132,11 +132,16 @@ function bracketOf(rank: number | null): string | null {
 }
 
 /** Value-scaled tones, shared by the popularity and difficulty cells. */
+/**
+ * Both scales use the SAME three bands as the published bracket thresholds — 0-30, 30-60,
+ * 60-100 — so a colour and a bracket label can never disagree. Popularity reads "green is
+ * demand", difficulty reads "green is winnable"; the thresholds mirror each other.
+ */
 export function popularityTone(v: number) {
-  return v >= 50 ? "var(--up)" : v >= 20 ? "var(--warn)" : "var(--down)";
+  return v >= 60 ? "var(--up)" : v >= 30 ? "var(--warn)" : "var(--down)";
 }
 export function difficultyTone(v: number) {
-  return v <= 20 ? "var(--up)" : v <= 55 ? "var(--warn)" : "var(--down)";
+  return v < 30 ? "var(--up)" : v < 60 ? "var(--warn)" : "var(--down)";
 }
 
 /**

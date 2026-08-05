@@ -13,6 +13,7 @@ const METHOD_LABELS: Record<string, string> = {
   measured: "Measured proceeds",
   grossing_rank: "Top-grossing rank",
   rank_only: "Rank only (uncalibrated)",
+  rpi_benchmark: "Installs x RevenueCat RPI",
   installs_arpu: "Installs x ARPU (weak)",
   none: "No signal",
 };
@@ -141,13 +142,20 @@ export default async function RevenuePage() {
             <strong className="text-[var(--fg)]">Rank only</strong> — on a grossing chart with nothing to calibrate
             against, so the rank is shown and the dollars are withheld. An uncalibrated power law is a random number
             with a plausible shape.{" "}
-            <strong className="text-[var(--fg)]">Installs x ARPU</strong> — off-chart apps only: modelled installs
-            times the real scraped in-app prices, with the widest band and permanently low confidence.
+            <strong className="text-[var(--fg)]">Installs x RevenueCat RPI</strong> — off-chart apps only: installs
+            from measured rating velocity (new ratings a month across our own snapshots, not a lifetime average) times
+            RevenueCat&apos;s published median revenue per install at day 60 from their State of Subscription Apps 2026
+            report — $0.66 for Health &amp; Fitness, $0.34 across all categories, measured over 115,000+ apps. Widest
+            band, permanently low confidence, because the install count under it is modelled.
           </p>
           <p className="mt-2 text-[12px] leading-relaxed text-[var(--fg-muted)]">
             To turn ranks into dollars, give the model one anchor: connect App Store Connect for an own app that sits
             on a grossing chart, or set <span className="num">REVENUE_ANCHOR_USD_MONTH</span> to that app&apos;s real
-            monthly proceeds. <strong className="text-[var(--fg)]">Estimates below $5K/mo are shown as{" "}
+            monthly proceeds. Cross-check any figure here for free against{" "}
+            <a href="https://rev.now" target="_blank" rel="noreferrer" className="text-[var(--accent)] underline">rev.now</a>,{" "}
+            <a href="https://featurepul.se/tools/app-store-revenue-downloads" target="_blank" rel="noreferrer" className="text-[var(--accent)] underline">Featurepulse</a>{" "}
+            or AppTweak&apos;s free Market Intelligence Starter plan — all three publish estimates without a paid seat.{" "}
+            <strong className="text-[var(--fg)]">Estimates below $5K/mo are shown as{" "}
             <span className="num">&lt;$5K/mo</span></strong> — precision we do not have would be a lie.
           </p>
         </Panel>

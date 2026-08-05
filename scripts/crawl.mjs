@@ -36,6 +36,8 @@ import { aiEnabled, scoreRelevance, generateKeywordCandidates, verifyCandidate }
 import {
   popularityProxy,
   popularityProxyAndroid,
+  fitProxyCalibration,
+  applyProxyCalibration,
   popularityEffective,
   opportunity,
   visibilityAndShareOfVoice,
@@ -509,7 +511,7 @@ if (JOBS.includes("revenue")) {
           where app_id = $1 order by captured_on desc limit 1`,
         [app.app_id],
       );
-      const meta = await q1(db, `select price_cents, released_at from apps where id = $1`, [app.app_id]);
+      const meta = await q1(db, `select price_cents, released_at, primary_genre from apps where id = $1`, [app.app_id]);
 
       // Months on sale — the divisor that turns a lifetime total into a monthly rate. A wrong
       // default here silently scales the whole estimate, so it comes from the real release date.
@@ -562,6 +564,25 @@ if (JOBS.includes("revenue")) {
         [app.app_id],
       );
 
+      // Rating velocity from our own snapshot history: one storefront only (ratings are
+      // per-storefront, so mixing them measures nothing), widest window up to 90 days.
+      const velocity = await q1(
+        db,
+        `with series as (
+           select captured_on, rating_count from app_snapshots
+            where app_id = $1 and country = $2 and rating_count is not null
+              and captured_on > current_date - 90
+         )
+         select (max(captured_on) - min(captured_on)) as days,
+                (select rating_count from series order by captured_on desc limit 1)
+              - (select rating_count from series order by captured_on asc limit 1) as delta
+           from series`,
+        [app.app_id, country],
+      );
+      const monthlyRatings =
+        // Five days is the shortest window whose slope is not mostly noise.
+        velocity?.days >= 5 && Number(velocity.delta) > 0 ? (Number(velocity.delta) * 30) / Number(velocity.days) : null;
+
       const est = revenueEstimate({
         platform: app.platform,
         // REVENUE_ANCHOR_USD_MONTH is the truth for our OWN app when App Store Connect proceeds
@@ -576,6 +597,8 @@ if (JOBS.includes("revenue")) {
         anchor: revenueAnchor,
         realInstalls: realInstalls == null ? null : Number(realInstalls),
         ratingCount: snap?.rating_count == null ? null : Number(snap.rating_count),
+        monthlyRatings,
+        category: meta?.primary_genre ?? null,
         priceCents,
         iaps,
         lifetimeMonths,
@@ -1051,6 +1074,18 @@ if (JOBS.includes("metrics")) {
   );
   if (LIMIT) stale = stale.slice(0, LIMIT);
 
+  // ONE calibration of the autocomplete proxy per run, fitted on every keyword where Apple's
+  // real Search Popularity and our proxy are both known. It sharpens itself as the ASA SOV
+  // report covers more terms; under 4 pairs it stays identity rather than guess a slope.
+  const proxyFit = fitProxyCalibration(
+    await q(
+      db,
+      `select popularity_estimate::float as proxy, popularity::float as store from keywords
+        where popularity is not null and popularity_estimate is not null and popularity_source = 'store'`,
+    ),
+  );
+  log(`   proxy calibration: ${proxyFit.fitted ? `store = ${proxyFit.slope} x proxy + ${proxyFit.intercept} (n=${proxyFit.n})` : `identity (only ${proxyFit.n} paired observation(s))`}`);
+
   const jobId = await startJob("metrics", { date: RUN_DATE }, stale.length);
   const jobWarnings = [];
   let done = 0;
@@ -1134,7 +1169,10 @@ if (JOBS.includes("metrics")) {
         result = popularityProxy(merged);
       }
 
-      const est = result.value;
+      // Onto Apple's scale. Uncalibrated, this proxy reads ~40 points high, which is exactly
+      // why our popularity looked inflated next to every other tool.
+      const est = applyProxyCalibration(result.value, proxyFit);
+      const effective = popularityEffective({ popularity: kw.popularity, popularity_estimate: est });
       await db.query(
         `update keywords
             set popularity_estimate = $2,
@@ -1144,7 +1182,9 @@ if (JOBS.includes("metrics")) {
                 est_downloads_rank1 = $3,
                 metrics_updated_at = now()
           where id = $1`,
-        [kw.keyword_id, est, estDownloadsAtRank1({ popularity: est ?? kw.popularity, platform: kw.platform })],
+        // Downloads follow the EFFECTIVE popularity (Apple's number when it exists), not the
+        // proxy — otherwise the inflated proxy inflated the download estimate with it.
+        [kw.keyword_id, est, estDownloadsAtRank1({ popularity: effective, platform: kw.platform })],
       );
     } catch (err) {
       jobWarnings.push(`metrics "${kw.term}"/${kw.country}: ${err.message}`);
