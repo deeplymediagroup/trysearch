@@ -134,6 +134,14 @@ function AddAppBody({ role, competitorOf, close }: { role: "own" | "competitor";
   const [message, setMessage] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
+  // Exactly one candidate per store → the same product on both, worth a single-click pairing.
+  const iosPick = candidates?.filter((c) => c.store === "ios") ?? [];
+  const androidPick = candidates?.filter((c) => c.store === "android") ?? [];
+  const pair: [Candidate, Candidate] | null =
+    store !== "android" && store !== "ios" && iosPick.length === 1 && androidPick.length === 1
+      ? [iosPick[0], androidPick[0]]
+      : null;
+
   function search() {
     if (!input.trim()) return;
     setMessage(null);
@@ -151,6 +159,28 @@ function AddAppBody({ role, competitorOf, close }: { role: "own" | "competitor";
       try {
         const res = await trackApp({ store: c.store, storeId: c.store_id, country: c.country, role, competitorOf });
         setMessage(`Tracking ${res.name}.`);
+        setCandidates(null);
+        close();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : String(err));
+      }
+    });
+  }
+
+  /** Track the iOS and Android versions AND pair them, so they read as one product. */
+  function trackBoth(iosC: Candidate, androidC: Candidate) {
+    setMessage(null);
+    start(async () => {
+      try {
+        const first = await trackApp({ store: iosC.store, storeId: iosC.store_id, country: iosC.country, role, competitorOf });
+        await trackApp({
+          store: androidC.store,
+          storeId: androidC.store_id,
+          country: androidC.country,
+          role,
+          competitorOf,
+          linkTo: role === "own" ? first.tracked_app_id : null,
+        });
         setCandidates(null);
         close();
       } catch (err) {
@@ -192,6 +222,13 @@ function AddAppBody({ role, competitorOf, close }: { role: "own" | "competitor";
       </div>
 
       {message && <p className="text-[12px] text-[var(--warn)]">{message}</p>}
+
+      {/* Both store versions found: one click tracks and pairs them. */}
+      {pair && (
+        <button type="button" disabled={pending} onClick={() => trackBoth(pair[0], pair[1])} className={`${BTN_PRIMARY} w-full`}>
+          {pending ? "Adding…" : `Track both stores as one product (${pair[0].name})`}
+        </button>
+      )}
 
       {candidates && candidates.length > 0 && (
         <ul className="max-h-64 divide-y divide-[var(--border)] overflow-y-auto rounded-[var(--radius-chip)] border border-[var(--border)]">

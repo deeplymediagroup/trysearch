@@ -80,7 +80,7 @@ export default async function DashboardPage() {
           </Panel>
         </div>
 
-        <Panel title="Ranked Keywords" caption="Stacked by rank bracket. Unranked keywords are excluded, not placed in 100+.">
+        <Panel title="Ranked Keywords" caption="Ranked keywords by rank bracket, last 30 days">
           <RankDistributionPanel data={d.distribution} />
         </Panel>
 

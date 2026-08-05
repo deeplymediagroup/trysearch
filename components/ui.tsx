@@ -32,10 +32,11 @@ export function Panel({
     <section className={`panel p-4 ${className}`}>
       {(title || action) && (
         <header className="mb-3 flex items-start justify-between gap-3">
-          <div>
+          {/* Title and caption on ONE line, matching the reference dashboard's panel header. */}
+          <div className="flex min-w-0 flex-wrap items-baseline gap-2">
             {title && <h2 className="text-[13px] font-semibold text-[var(--fg)]">{title}</h2>}
             {/* Every panel states its data source in a caption. */}
-            {caption && <p className="mt-0.5 text-[11px] text-[var(--fg-subtle)]">{caption}</p>}
+            {caption && <p className="text-[11px] text-[var(--fg-subtle)]">{caption}</p>}
           </div>
           {action}
         </header>

@@ -73,14 +73,22 @@ export async function findApp(
   const cc = (ref.country ?? country ?? "us").toLowerCase();
 
   try {
-    // Exact id → exactly one answer.
+    // Exact id → one certain answer, PLUS the other store's version of the same product when
+    // the caller did not pin a store. An App Store link used to return the iOS row and stop,
+    // so "Both stores" could never find the Android twin. Apple's bundleId and Play's package
+    // name are the same string for most cross-platform apps — the only free cross-store key
+    // there is — so the twin is one lookup away.
     if (ref.id) {
       if (ref.store === "ios") {
         const [app] = await appleLookup([ref.id], cc);
-        return { candidates: app ? [shape(app, "ios", cc)] : [], error: app ? undefined : `No iOS app with id ${ref.id} in ${cc.toUpperCase()}.` };
+        if (!app) return { candidates: [], error: `No iOS app with id ${ref.id} in ${cc.toUpperCase()}.` };
+        const twin = store === "ios" || !app.bundle_id ? null : await playAppDetail(app.bundle_id, cc).catch(() => null);
+        return { candidates: [shape(app, "ios", cc), ...(twin ? [shape(twin, "android", cc)] : [])] };
       }
       const app = await playAppDetail(ref.id!, cc);
-      return { candidates: app ? [shape(app, "android", cc)] : [], error: app ? undefined : `No Play app "${ref.id}" in ${cc.toUpperCase()}.` };
+      if (!app) return { candidates: [], error: `No Play app "${ref.id}" in ${cc.toUpperCase()}.` };
+      const [twin] = store === "android" ? [] : await appleLookup([ref.id!], cc, { bundleId: true }).catch(() => []);
+      return { candidates: [shape(app, "android", cc), ...(twin ? [shape(twin as any, "ios", cc)] : [])] };
     }
 
     // A dotted token is a valid id on both stores, so ask both and let the answers decide.
@@ -123,12 +131,15 @@ export async function trackApp({
   country = "us",
   role = "own",
   competitorOf = null,
+  linkTo = null,
 }: {
   store: "ios" | "android";
   storeId: string;
   country?: string;
   role?: "own" | "competitor";
   competitorOf?: string | null;
+  /** tracked_app_id of this app's other-store version, to pair them as ONE product. */
+  linkTo?: string | null;
 }) {
   const ws = await workspaceId();
   withSink();
@@ -160,6 +171,25 @@ export async function trackApp({
      returning id`,
     [ws, appId, role, role === "competitor" ? competitorOf : null, store === "ios" ? "iphone" : "android_phone"],
   );
+
+  // Pair the two store versions. The switcher and the Both-stores tab both read product_id,
+  // and nothing in the UI ever set it — so an iOS and an Android app for the same product sat
+  // as two unrelated rows no matter how they were added.
+  if (linkTo && role === "own") {
+    const twin = await q1<{ id: string; product_id: string | null }>(
+      `select id, product_id from tracked_apps where id = $1 and workspace_id = $2 and role = 'own'`,
+      [linkTo, ws],
+    );
+    if (twin) {
+      const productId =
+        twin.product_id ??
+        (await q1<{ product_id: string }>(
+          `update tracked_apps set product_id = gen_random_uuid() where id = $1 returning product_id`,
+          [twin.id],
+        ))!.product_id;
+      await exec(`update tracked_apps set product_id = $2 where id = $1`, [row!.id, productId]);
+    }
+  }
 
   // Auto-scan on add (Workstream E): a new competitor immediately yields its keyword
   // footprint — listing terms now, AI brand/derivative terms if AI is on — instead of

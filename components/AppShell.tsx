@@ -36,6 +36,7 @@ import { listTrackedApps, type TrackedApp } from "@/lib/queries";
 import { currentWorkspace } from "@/lib/db";
 import { PlatformChip } from "./ui";
 import { AddAppDialog } from "./AddDialog";
+import { UntrackAppButton } from "./UntrackButtons";
 
 export const ACTIVE_APP_COOKIE = "trysearch_app";
 
@@ -140,17 +141,28 @@ export async function AppShell({ children, current }: { children: React.ReactNod
                 .map((a) => {
                   const pair = a.product_id ? own.find((b) => b.product_id === a.product_id && b.tracked_app_id !== a.tracked_app_id) : null;
                   return (
-                    <Link
+                    // Add and remove belong in the same place. Removal used to exist only on
+                    // /portfolio, which is not where anyone looks after adding the wrong app.
+                    <div
                       key={a.tracked_app_id}
-                      href={`/dashboard?app=${a.tracked_app_id}`}
-                      className={`flex items-center gap-2 rounded-[7px] px-2 py-1.5 text-[13px] hover:bg-[var(--bg-hover)] ${a.tracked_app_id === active?.tracked_app_id ? "font-medium text-[var(--fg)]" : "text-[var(--fg-muted)]"}`}
+                      className={`group/app flex items-center gap-2 rounded-[7px] px-2 py-1.5 text-[13px] hover:bg-[var(--bg-hover)] ${a.tracked_app_id === active?.tracked_app_id ? "font-medium text-[var(--fg)]" : "text-[var(--fg-muted)]"}`}
                     >
-                      <span className="truncate">{a.name}</span>
-                      <span className="ml-auto flex shrink-0 gap-1 text-[10px] text-[var(--fg-subtle)]">
+                      <Link href={`/dashboard?app=${a.tracked_app_id}`} className="min-w-0 flex-1 truncate">
+                        {a.name}
+                      </Link>
+                      <span className="flex shrink-0 items-center gap-1 text-[10px] text-[var(--fg-subtle)]">
                         {a.platform === "ios" || pair ? <span></span> : null}
                         {a.platform === "android" || pair ? <span>▶</span> : null}
                       </span>
-                    </Link>
+                      <span className="shrink-0 opacity-0 transition-opacity group-hover/app:opacity-100">
+                        <UntrackAppButton
+                          trackedAppId={a.tracked_app_id}
+                          name={a.name}
+                          keywordCount={a.keyword_count}
+                          label="✕"
+                        />
+                      </span>
+                    </div>
                   );
                 })}
               <div className="mt-1 border-t border-[var(--border)] px-2 py-2">

@@ -100,13 +100,59 @@ export function ShareOfVoiceChart({ data }: { data: { metric_on: string; share_o
   );
 }
 
+/**
+ * Bracket palette, stacking order and geometry match the reference tool's Ranked Keywords
+ * chart exactly — values read off its live recharts SVG: Tailwind 500 hues at fillOpacity
+ * 0.45 with a 1px stroke of the same colour, #ccc 3-3 horizontal grid, 11px #666 ticks with
+ * no axis or tick lines, r=3 active dots with a 2px white ring.
+ *
+ * Order matters: the array is rendered bottom-up, so 100+ sits on the floor and Top 3 caps
+ * the stack. Reversing it (as this file used to) buries the band you care about.
+ */
 const BRACKETS = [
-  { key: "top3_count", label: "Top 3", colour: "var(--rank-top3)" },
-  { key: "b4_10", label: "4–10", colour: "var(--rank-4-10)" },
-  { key: "bracket_11_30", label: "11–30", colour: "var(--rank-11-30)" },
-  { key: "bracket_31_100", label: "31–100", colour: "var(--rank-31-100)" },
-  { key: "bracket_100_plus", label: "100+", colour: "var(--rank-100plus)" },
+  { key: "bracket_100_plus", label: "100+", colour: "#ef4444" },
+  { key: "bracket_31_100", label: "31–100", colour: "#f97316" },
+  { key: "bracket_11_30", label: "11–30", colour: "#eab308" },
+  { key: "b4_10", label: "4–10", colour: "#84cc16" },
+  { key: "top3_count", label: "Top 3", colour: "#22c55e" },
 ];
+
+/** Legend as coloured dots, in reading order (best bracket first) rather than stack order. */
+function BracketLegend() {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-4 pl-2">
+      {[...BRACKETS].reverse().map((b) => (
+        <span key={b.key} className="flex items-center gap-1.5 text-[12px] text-[var(--fg-muted)]">
+          <span aria-hidden className="inline-block h-2 w-2 rounded-full" style={{ background: b.colour }} />
+          {b.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Tooltip: best bracket first, then a ruled Total row — the reference tool's layout. */
+function BracketTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const byKey = new Map<string, number>(payload.map((p: any) => [String(p.dataKey), Number(p.value) || 0]));
+  const total = [...byKey.values()].reduce((a, b) => a + b, 0);
+  return (
+    <div className="rounded-[8px] border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 text-[12px] shadow-lg">
+      <div className="mb-1 font-semibold text-[var(--fg)]">{label}</div>
+      {[...BRACKETS].reverse().map((b) => (
+        <div key={b.key} className="flex items-center gap-2 leading-5">
+          <span aria-hidden className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: b.colour }} />
+          <span className="flex-1 text-[var(--fg-muted)]">{b.label}</span>
+          <span className="num font-semibold tabular-nums text-[var(--fg)]">{byKey.get(b.key) ?? 0}</span>
+        </div>
+      ))}
+      <div className="mt-1 flex items-center gap-2 border-t border-[var(--border)] pt-1 leading-5">
+        <span className="flex-1 pl-4 text-[var(--fg-muted)]">Total</span>
+        <span className="num font-semibold tabular-nums text-[var(--fg)]">{total}</span>
+      </div>
+    </div>
+  );
+}
 
 /**
  * RankDistributionPanel — the stacked distribution with two switches: count vs
@@ -128,7 +174,7 @@ export function RankDistributionPanel({ data }: { data: Record<string, unknown>[
   }));
   return (
     <>
-      <div className="mb-2 flex items-center justify-end gap-2">
+      <div className="mb-1 flex items-center justify-end gap-2 sm:-mt-8">
         <button
           type="button"
           onClick={() => setStarredOnly((s) => !s)}
@@ -172,19 +218,29 @@ export function BracketAreaChart({ data }: { data: any[] }) {
   }));
   return (
     <>
-      <ResponsiveContainer width="100%" height={190}>
-        <AreaChart data={rows} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-          <CartesianGrid {...GRID} vertical={false} />
-          <XAxis dataKey="date" {...AXIS} tickLine={false} axisLine={false} />
-          <YAxis {...AXIS} tickLine={false} axisLine={false} allowDecimals={false} />
-          <Tooltip contentStyle={tooltipStyle} />
-          <Legend wrapperStyle={{ fontSize: 10 }} />
+      <ResponsiveContainer width="100%" height={208}>
+        <AreaChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid stroke="#ccc" strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="date" tick={{ fill: "#666", fontSize: 11 }} tickLine={false} axisLine={false} />
+          <YAxis tick={{ fill: "#666", fontSize: 11 }} tickLine={false} axisLine={false} allowDecimals={false} width={30} />
+          <Tooltip content={<BracketTooltip />} cursor={{ stroke: "#ccc" }} />
           {BRACKETS.map((b) => (
-            <Area key={b.key} type="monotone" dataKey={b.key} name={b.label} stackId="1" stroke={b.colour} fill={b.colour} fillOpacity={0.55} />
+            <Area
+              key={b.key}
+              type="monotone"
+              dataKey={b.key}
+              name={b.label}
+              stackId="1"
+              stroke={b.colour}
+              strokeWidth={1}
+              fill={b.colour}
+              fillOpacity={0.45}
+              activeDot={{ r: 3, fill: b.colour, stroke: "#fff", strokeWidth: 2 }}
+            />
           ))}
         </AreaChart>
       </ResponsiveContainer>
-      <Caption>Ranked keywords by rank bracket, last 30 days. Unranked keywords are excluded entirely.</Caption>
+      <BracketLegend />
       <DataTableFallback rows={rows} label="Ranked keywords by bracket" />
     </>
   );
