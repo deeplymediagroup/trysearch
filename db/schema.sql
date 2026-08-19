@@ -903,3 +903,26 @@ create index if not exists discovery_runs_by_app on discovery_runs (tracked_app_
 -- product_id (2026-08). Pairing is explicit via the link_store_version op or automatic on
 -- name match; null = unpaired.
 alter table tracked_apps add column if not exists product_id uuid;
+
+-- ============================================================================
+-- Apple Ads Platform API — Insights search-term popularity corpus (2026-08).
+-- Apple's old popularity collapsed Oct 2025; the replacement is this dataset:
+-- per country and App Store genre, the top terms with REAL 1–100 popularity
+-- (country-wide and within-genre) plus rank-in-genre, published weekly. Rows
+-- accumulate by period so terms can be trended. This corpus is the ground
+-- truth that keywords.popularity and the proxy calibration learn from.
+-- ============================================================================
+create table if not exists asa_search_terms (
+  id                  bigserial primary key,
+  period_start        date not null,             -- Sun of the Sun–Sat week (UTC)
+  country             text not null,             -- lowercased to match keywords.country
+  genre               text not null,             -- Apple's genre enum, e.g. HEALTH_FITNESS
+  term_normalized     text not null,
+  rank_in_genre       integer,
+  popularity_in_genre integer check (popularity_in_genre between 1 and 100),
+  popularity_1_100    integer check (popularity_1_100 between 1 and 100),
+  popularity_1_5      integer check (popularity_1_5 between 1 and 5),
+  fetched_at          timestamptz not null default now(),
+  unique (period_start, country, genre, term_normalized)
+);
+create index if not exists asa_search_terms_term on asa_search_terms (term_normalized, country, period_start desc);

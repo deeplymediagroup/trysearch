@@ -8,6 +8,15 @@ export const metadata = { title: "What's New — trysearch" };
 
 const ENTRIES: { date: string; title: string; items: string[] }[] = [
   {
+    date: "2026-08-19",
+    title: "Real Apple popularity is back",
+    items: [
+      "Popularity now comes from Apple's new search-term insights (Apple Ads Platform API): real 1–100 scores per country, refreshed weekly — replacing the coarse 1–5 report workaround Apple broke in late 2025.",
+      "The full corpus is stored per week (term, genre rank, in-genre and country-wide popularity), so terms can be trended and mined for ideas.",
+      "Our own popularity estimate now calibrates itself against every term Apple publishes — the more ground truth Apple gives, the more accurate our numbers get on the long-tail terms Apple doesn't cover.",
+    ],
+  },
+  {
     date: "2026-08-04",
     title: "The everything release",
     items: [

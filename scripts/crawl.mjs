@@ -1062,6 +1062,21 @@ function rotationSlice(items, size) {
 // JOB 4 — metrics: recompute popularity from autocomplete_hits
 // ===========================================================================
 if (JOBS.includes("metrics")) {
+  // Real Apple popularity FIRST — the Apple Ads Platform API insights corpus, one query per
+  // country. It must land before the stale select (so the loop reads fresh store values) and
+  // before the calibration fit (so tonight's fit learns from tonight's ground truth).
+  const { asaConfigured } = await import("../lib/stores/asa.mjs");
+  if (asaConfigured() && !DRY) {
+    try {
+      const { refreshAsaPopularity } = await import("../lib/asa-popularity.mjs");
+      const res = await refreshAsaPopularity(db, { log });
+      warnings.push(...res.warnings);
+      log(`   asa popularity: ${res.corpusRows} corpus row(s) across ${res.countries} country(ies), ${res.applied} keyword(s) updated`);
+    } catch (err) {
+      warnings.push(`asa popularity: ${err.message.slice(0, 200)}`);
+    }
+  }
+
   let stale = await q(
     db,
     `select k.id as keyword_id, k.term, k.term_normalized, k.platform, k.country, k.popularity
@@ -1075,8 +1090,8 @@ if (JOBS.includes("metrics")) {
   if (LIMIT) stale = stale.slice(0, LIMIT);
 
   // ONE calibration of the autocomplete proxy per run, fitted on every keyword where Apple's
-  // real Search Popularity and our proxy are both known. It sharpens itself as the ASA SOV
-  // report covers more terms; under 4 pairs it stays identity rather than guess a slope.
+  // real popularity and our proxy are both known. It sharpens itself as Apple's insights
+  // corpus covers more terms; under 4 pairs it stays identity rather than guess a slope.
   const proxyFit = fitProxyCalibration(
     await q(
       db,
@@ -1089,10 +1104,6 @@ if (JOBS.includes("metrics")) {
   const jobId = await startJob("metrics", { date: RUN_DATE }, stale.length);
   const jobWarnings = [];
   let done = 0;
-
-  // Apple Search Ads SOV cache: country -> Map(term -> 1..5 bucket), one report per country per run.
-  const { asaConfigured, searchPopularity, SAP_BUCKET_TO_POPULARITY } = await import("../lib/stores/asa.mjs");
-  const sapByCountry = new Map();
 
   log(`4. metrics — ${stale.length} keyword(s) needing a popularity refresh`);
 
@@ -1129,29 +1140,6 @@ if (JOBS.includes("metrics")) {
         best: minOrNull(depth.best, observed?.best),
         hits: (depth.hits ?? 0) + (observed?.hits ?? 0),
       };
-
-      // Real Apple Search Popularity from the Search Ads SOV report: ONE report per country
-      // per run (quota is 10/day), cached in sapByCountry, covering every term Apple links to
-      // the app. A real popularity value is what flips popularity_source to 'store'.
-      if (kw.platform === "ios" && asaConfigured()) {
-        try {
-          if (!sapByCountry.has(kw.country)) {
-            const ownIos = trackedApps.find((a) => a.role === "own" && a.platform === "ios");
-            sapByCountry.set(
-              kw.country,
-              ownIos ? await searchPopularity({ adamId: ownIos.store_id, country: kw.country }) : new Map(),
-            );
-            log(`   asa sov ${kw.country}: ${sapByCountry.get(kw.country).size} term(s) with real popularity`);
-          }
-          const bucket = sapByCountry.get(kw.country).get(kw.term.toLowerCase());
-          if (bucket != null) {
-            await db.query(`update keywords set popularity = $2 where id = $1`, [kw.keyword_id, SAP_BUCKET_TO_POPULARITY[bucket]]);
-          }
-        } catch (err) {
-          sapByCountry.set(kw.country, new Map()); // one failure must not re-fire per keyword
-          jobWarnings.push(`asa popularity ${kw.country}: ${err.message}`);
-        }
-      }
 
       let result;
       if (kw.platform === "android") {
