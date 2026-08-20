@@ -8,6 +8,16 @@ export const metadata = { title: "What's New — trysearch" };
 
 const ENTRIES: { date: string; title: string; items: string[] }[] = [
   {
+    date: "2026-08-20",
+    title: "The Apple insights release",
+    items: [
+      "Apple demand trend — every keyword detail page charts Apple's real weekly popularity for that term, with its rank-by-volume inside its genre. A backfill script pulls the full 65 weeks of history Apple keeps.",
+      "Discovery now mines Apple's own demand leaderboard: the top terms Apple publishes for your genre flow into keyword ideas as the \"Apple top terms\" source — Apple stating what people search, ranked.",
+      "Apple Ads impression share — per keyword, how much of the available ad impressions your app captured and your rank among advertisers, accumulated weekly (Apple only keeps 4 weeks; we keep everything).",
+      "Self-improving estimates — each night a stratified sample of Apple-published terms gets scored by our own model too, so the calibration learns from hundreds of real pairs across the whole demand range, not just tracked keywords.",
+    ],
+  },
+  {
     date: "2026-08-19",
     title: "Real Apple popularity is back",
     items: [

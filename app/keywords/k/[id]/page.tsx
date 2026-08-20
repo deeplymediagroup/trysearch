@@ -5,7 +5,7 @@
 import Link from "next/link";
 import { AppShell, PageHeader, getActiveApp } from "@/components/AppShell";
 import { Panel, Chip, EmptyState, CountryFlag, ScoreCell, PopularityCell, RankPill, DeltaBadge } from "@/components/ui";
-import { RankHistoryChart } from "@/components/Charts";
+import { RankHistoryChart, MiniBarChart } from "@/components/Charts";
 import { getKeywordDetail } from "@/lib/queries";
 import { keywordSeasonality } from "@/lib/stores/gtrends.mjs";
 import { q1 } from "@/lib/db";
@@ -31,7 +31,7 @@ export default async function KeywordDetailPage({ params }: { params: Promise<{ 
     );
   }
 
-  const { kw, history, serp } = detail;
+  const { kw, history, serp, popTrend, adShare } = detail;
   // Real 5-year Google Trends seasonality, cached 7 days. Null = Trends had no signal.
   const seasonality = (await keywordSeasonality(q1, kw.term, kw.country.toUpperCase()).catch(() => null)) as
     | { index: number[]; peaks: string[]; troughs: string[]; seasonal: boolean; weeks: number }
@@ -88,6 +88,33 @@ export default async function KeywordDetailPage({ params }: { params: Promise<{ 
             <RankHistoryChart series={[...byApp.values()]} annotations={[]} />
           </Panel>
         </div>
+
+        {/* Both panels read Apple Ads Platform API data and simply don't exist until the
+            corpus/impression-share jobs have rows — absence is the honest empty state. */}
+        {popTrend.length > 0 && (
+          <div className={adShare.length > 0 ? "xl:col-span-2" : "xl:col-span-3"}>
+            <Panel
+              title="Apple demand trend"
+              caption={`Apple's real search popularity (1–100, country-wide), weekly.${popTrend.at(-1)?.rank_in_genre ? ` Currently #${popTrend.at(-1)!.rank_in_genre} by volume in its genre.` : ""}`}
+            >
+              <MiniBarChart data={popTrend} dataKey="pop" label="Apple popularity" />
+            </Panel>
+          </div>
+        )}
+        {adShare.length > 0 && (
+          <Panel title="Apple Ads impression share" caption="How much of this term's available ad impressions your app captured (first slot).">
+            <dl className="space-y-2.5">
+              {adShare.map((s) => (
+                <Row key={s.date} label={`Week of ${s.date}`}>
+                  <span className="num text-[12px]">
+                    {shareBand(s.low_share, s.high_share)}
+                    {s.share_rank != null && <span className="text-[var(--fg-subtle)]"> · #{s.share_rank} advertiser</span>}
+                  </span>
+                </Row>
+              ))}
+            </dl>
+          </Panel>
+        )}
 
         <div className="xl:col-span-3">
           <Panel
@@ -184,6 +211,14 @@ export default async function KeywordDetailPage({ params }: { params: Promise<{ 
       </div>
     </AppShell>
   );
+}
+
+/** Apple buckets 91–100% as one band (0.91–1.0); below that low === high. */
+function shareBand(low: string | null, high: string | null) {
+  if (low == null || high == null) return fmt.EM_DASH;
+  const lo = Math.round(Number(low) * 100);
+  const hi = Math.round(Number(high) * 100);
+  return lo === hi ? `${lo}%` : `${lo}–${hi}%`;
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {

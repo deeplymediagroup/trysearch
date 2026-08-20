@@ -446,7 +446,7 @@ export async function getKeywordDetail(trackedKeywordId: string) {
   const kw = rows[0];
   if (!kw) return null;
 
-  const [history, serp] = await Promise.all([
+  const [history, serp, popTrend, adShare] = await Promise.all([
     // Rank history for EVERY workspace app on this keyword — yours and competitors on one chart.
     q<{ app_id: string; app_name: string; role: string; checked_on: string; rank: number | null }>(
       `select r.app_id, a.name as app_name, ta.role, r.checked_on::text, r.rank
@@ -469,8 +469,27 @@ export async function getKeywordDetail(trackedKeywordId: string) {
         limit 10`,
       [kw.keyword_id],
     ),
+    // Apple's REAL weekly popularity for this term (Platform API insights corpus). Empty
+    // until credentials exist and the corpus job runs — the page hides the chart then.
+    q<{ date: string; pop: number; rank_in_genre: number | null }>(
+      `select s.period_start::text as date, max(s.popularity_1_100)::int as pop, min(s.rank_in_genre)::int as rank_in_genre
+         from asa_search_terms s
+         join keywords k on k.term_normalized = s.term_normalized and k.country = s.country
+        where k.id = $1 and s.popularity_1_100 is not null
+        group by s.period_start order by s.period_start`,
+      [kw.keyword_id],
+    ),
+    // Apple Ads impression share for our own app(s) on this term, latest week first.
+    q<{ date: string; low_share: string | null; high_share: string | null; share_rank: number | null }>(
+      `select s.period_start::text as date, s.low_share::text, s.high_share::text, s.share_rank
+         from asa_impression_share s
+         join keywords k on k.term_normalized = s.term_normalized and k.country = s.country
+        where k.id = $1
+        order by s.period_start desc limit 8`,
+      [kw.keyword_id],
+    ),
   ]);
-  return { kw, history, serp };
+  return { kw, history, serp, popTrend, adShare };
 }
 
 /** Rank history for the chart. Never interpolates: missing days come back as gaps. */

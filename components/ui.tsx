@@ -375,6 +375,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   ai: "AI",
   chart: "Chart",
   competitor_ai: "Competitor AI",
+  apple_top: "Apple top terms",
 };
 
 /** One colour per provenance, so a table of 900 rows reads by source at a glance. */
@@ -388,6 +389,7 @@ const SOURCE_COLORS: Record<string, { fg: string; bg: string }> = {
   ai: { fg: "rgb(190, 130, 255)", bg: "rgba(190, 130, 255, 0.15)" },
   chart: { fg: "#ea580c", bg: "rgba(234,88,12,0.12)" },
   play_console: { fg: "#0891b2", bg: "rgba(8,145,178,0.12)" },
+  apple_top: { fg: "#65a30d", bg: "rgba(101,163,13,0.12)" },
 };
 
 export function SourceChip({ source }: { source: string }) {

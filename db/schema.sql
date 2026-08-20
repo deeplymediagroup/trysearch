@@ -236,7 +236,7 @@ create table if not exists discovered_keywords (
   workspace_id      uuid not null references workspaces(id) on delete cascade,
   tracked_app_id    uuid not null references tracked_apps(id) on delete cascade,
   keyword_id        bigint not null references keywords(id) on delete cascade,
-  source            text not null check (source in ('autocomplete','listing','competitor','ai','chart','competitor_ai')),
+  source            text not null check (source in ('autocomplete','listing','competitor','ai','chart','competitor_ai','apple_top')),
   relevance         integer check (relevance between 0 and 100),   -- AI-assessed intent match; NULL until computed
   opportunity       integer check (opportunity between 0 and 100),
   last_checked_at   timestamptz,            -- NULL renders as "never"
@@ -251,11 +251,11 @@ create index if not exists discovered_open on discovered_keywords(tracked_app_id
 -- The table predates the relevance reason (03 §6 asks for score + one-sentence why).
 alter table discovered_keywords add column if not exists relevance_reason text;
 
--- The check predates the per-competitor AI source ('competitor_ai'), so refresh it on
--- installs migrated before it existed.
+-- The check predates the per-competitor AI source ('competitor_ai') and Apple's insights
+-- corpus source ('apple_top'), so refresh it on installs migrated before they existed.
 alter table discovered_keywords drop constraint if exists discovered_keywords_source_check;
 alter table discovered_keywords add constraint discovered_keywords_source_check
-  check (source in ('autocomplete','listing','competitor','ai','chart','competitor_ai'));
+  check (source in ('autocomplete','listing','competitor','ai','chart','competitor_ai','apple_top'));
 
 -- Research projects (Workstream J): standalone keyword research containers, independent of
 -- tracked apps. Keyword rows reference the SHARED keywords table (05 §2.5) so metrics are
@@ -926,3 +926,22 @@ create table if not exists asa_search_terms (
   unique (period_start, country, genre, term_normalized)
 );
 create index if not exists asa_search_terms_term on asa_search_terms (term_normalized, country, period_start desc);
+
+-- Apple Ads impression share (Platform API insights, 2026-08): per own-app and search term,
+-- the share of available ad impressions captured (low–high band; 0.91–1.0 means >90%), our
+-- rank among advertisers, and Apple's 1–5 popularity. Apple serves only ~4 weekly periods,
+-- so the nightly crawl ACCUMULATES rows — history exists only because we kept it.
+create table if not exists asa_impression_share (
+  id              bigserial primary key,
+  period_start    date not null,             -- Sun of the Sun–Sat week (UTC)
+  country         text not null,             -- lowercased to match keywords.country
+  adam_id         text not null,             -- the promoted (own) app's store id
+  term_normalized text not null,
+  low_share       numeric(4,3) check (low_share between 0 and 1),
+  high_share      numeric(4,3) check (high_share between 0 and 1),
+  share_rank      integer,                   -- 1 = the biggest advertiser on this term
+  popularity_1_5  integer check (popularity_1_5 between 1 and 5),
+  fetched_at      timestamptz not null default now(),
+  unique (period_start, country, adam_id, term_normalized)
+);
+create index if not exists asa_impression_share_term on asa_impression_share (term_normalized, country, period_start desc);

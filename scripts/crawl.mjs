@@ -33,6 +33,8 @@ import { playAppDetail, playSuggest, playSuggestBroad, extractListingKeywords, p
 import { fetchIosSerp, fetchAndroidSerp, persistSerp, updateKeywordSerpMetrics } from "../lib/serp.mjs";
 import { scanCompetitor, bigrams, isJunkTerm } from "../lib/competitor-scan.mjs";
 import { aiEnabled, scoreRelevance, generateKeywordCandidates, verifyCandidate } from "../lib/ai.mjs";
+import { asaConfigured } from "../lib/stores/asa.mjs";
+import { refreshAsaPopularity, refreshImpressionShare, calibrationCandidates, appleGenreEnum } from "../lib/asa-popularity.mjs";
 import {
   popularityProxy,
   popularityProxyAndroid,
@@ -1065,15 +1067,22 @@ if (JOBS.includes("metrics")) {
   // Real Apple popularity FIRST — the Apple Ads Platform API insights corpus, one query per
   // country. It must land before the stale select (so the loop reads fresh store values) and
   // before the calibration fit (so tonight's fit learns from tonight's ground truth).
-  const { asaConfigured } = await import("../lib/stores/asa.mjs");
   if (asaConfigured() && !DRY) {
     try {
-      const { refreshAsaPopularity } = await import("../lib/asa-popularity.mjs");
       const res = await refreshAsaPopularity(db, { log });
       warnings.push(...res.warnings);
       log(`   asa popularity: ${res.corpusRows} corpus row(s) across ${res.countries} country(ies), ${res.applied} keyword(s) updated`);
     } catch (err) {
       warnings.push(`asa popularity: ${err.message.slice(0, 200)}`);
+    }
+    // Impression share rides along: Apple serves only ~4 weekly periods, so skipping a night
+    // is how history gets holes.
+    try {
+      const share = await refreshImpressionShare(db, { log });
+      warnings.push(...share.warnings);
+      if (share.rows) log(`   impression share: ${share.rows} row(s) accumulated`);
+    } catch (err) {
+      warnings.push(`impression share: ${err.message.slice(0, 200)}`);
     }
   }
 
@@ -1179,6 +1188,36 @@ if (JOBS.includes("metrics")) {
       jobWarnings.push(`metrics "${kw.term}"/${kw.country}: ${err.message}`);
     }
     await bumpJob(jobId, ++done);
+  }
+
+  // Calibration sampling: corpus terms where Apple published a real popularity but no
+  // keyword row has a proxy yet. Scoring a stratified handful a night grows the proxy fit
+  // by hundreds of pairs over weeks — far beyond the tracked-keyword overlap — which is
+  // what makes OUR estimates accurate on the long tail Apple doesn't publish. Autocomplete
+  // fetches only (unthrottled host, 7-day cached); these rows are never added to the SERP
+  // rank queue, so this costs no crawl budget where it hurts.
+  if (asaConfigured() && !DRY && !outOfTime()) {
+    const CAL_SAMPLE = Number(process.env.ASA_CAL_SAMPLE ?? 25);
+    let sampled = 0;
+    try {
+      for (const c of await calibrationCandidates(db, { limit: CAL_SAMPLE })) {
+        if (outOfTime()) break;
+        const kw = await upsertKeyword(db, { term: c.term, platform: "ios", country: c.country });
+        const depth = await suggestDepth(c.term, c.country, "ios");
+        const proxy = popularityProxy(depth);
+        await db.query(
+          `update keywords
+              set popularity = $2, popularity_source = 'store', popularity_proxy_raw = $3,
+                  popularity_estimate = $4, metrics_updated_at = now()
+            where id = $1`,
+          [kw.id, c.pop, proxy.value, applyProxyCalibration(proxy.value, proxyFit)],
+        );
+        sampled++;
+      }
+      if (sampled) log(`   calibration sample: ${sampled} corpus term(s) proxied — the fit grows tonight`);
+    } catch (err) {
+      jobWarnings.push(`calibration sample: ${err.message.slice(0, 200)}`);
+    }
   }
 
   log(`   ${done} keyword(s) rescored${jobWarnings.length ? `, ${jobWarnings.length} warning(s)` : ""}`);
@@ -1363,6 +1402,24 @@ async function discoverFor(app, jobWarnings) {
     } catch (err) {
       jobWarnings.push(`discovery ai candidates ${app.name}: ${err.message}`);
     }
+  }
+
+  // Source G — Apple's own demand leaderboard: the top terms Apple publishes for this app's
+  // genre (Platform API insights corpus, already in asa_search_terms). The strongest source
+  // when present — it is Apple stating what people search, ranked by volume — and empty
+  // until ASA credentials exist and the corpus job has run. Top 150 by genre rank; the
+  // blocklist below and the AI relevance pass strip the branded giants.
+  if (app.platform === "ios" && app.primary_genre) {
+    const topTerms = await q(
+      db,
+      `select term_normalized from asa_search_terms
+        where country = any($1::text[]) and genre = $2
+          and period_start = (select max(period_start) from asa_search_terms)
+          and rank_in_genre <= 150
+        group by term_normalized order by min(rank_in_genre)`,
+      [countries, appleGenreEnum(app.primary_genre)],
+    );
+    addAll(topTerms.map((r) => r.term_normalized), "apple_top");
   }
 
   // Filter out other apps' names, which dominate autocomplete ("forge: daily mindset quotes").
