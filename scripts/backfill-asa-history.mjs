@@ -8,9 +8,12 @@
  * Resumable and idempotent: weeks already in the table are skipped, so a rate-limited run
  * (Apple 429s) just gets re-run. Newest weeks first — the most useful history lands first.
  */
+import { loadEnv } from "./env.mjs";
 import { connect, q } from "../lib/db.mjs";
 import { asaConfigured, searchTermPopularity, lastFullWeek } from "../lib/stores/asa.mjs";
 import { upsertCorpus, applyCorpusToKeywords, genresFor } from "../lib/asa-popularity.mjs";
+
+loadEnv(); // asaConfigured() reads process.env BEFORE connect() would have loaded it
 
 const MAX_WEEKS = Math.min(Number(process.argv[2] ?? 65), 65);
 
